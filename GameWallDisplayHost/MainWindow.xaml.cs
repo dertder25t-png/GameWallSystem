@@ -2,6 +2,7 @@ using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Windows;
+using FormsScreen = System.Windows.Forms.Screen;
 using System.Windows.Controls;
 using System.Windows.Input;
 using Microsoft.Web.WebView2.Core;
@@ -155,7 +156,55 @@ public partial class MainWindow : Window
                 case "test":
                     RunTestMode();
                     break;
+
+                case "displays":
+                    _ = SendDisplayStatusAsync();
+                    break;
+
+                case "monitor":
+                    if (cmd.Monitor is int monitorIndex)
+                        MoveToMonitor(monitorIndex);
+                    break;
             }
+        });
+    }
+
+    private void MoveToMonitor(int monitorIndex)
+    {
+        var screens = FormsScreen.AllScreens;
+        if (monitorIndex < 0 || monitorIndex >= screens.Length) return;
+
+        var bounds = screens[monitorIndex].Bounds;
+        WindowState = WindowState.Normal;
+        Left = bounds.Left;
+        Top = bounds.Top;
+        Width = bounds.Width;
+        Height = bounds.Height;
+        WindowState = WindowState.Maximized;
+        _ = SendDisplayStatusAsync();
+    }
+
+    private async Task SendDisplayStatusAsync()
+    {
+        if (_server is null) return;
+
+        var screens = FormsScreen.AllScreens;
+        var selectedIndex = Array.FindIndex(screens, screen =>
+            screen.Bounds.Contains((int)Left + 10, (int)Top + 10));
+        if (selectedIndex < 0) selectedIndex = 0;
+
+        await _server.BroadcastAsync(new DisplayStatus
+        {
+            SelectedIndex = selectedIndex,
+            Displays = screens.Select((screen, index) => new DisplayInfo
+            {
+                Index = index,
+                Name = string.IsNullOrWhiteSpace(screen.DeviceName)
+                    ? $"Monitor {index + 1}"
+                    : screen.DeviceName,
+                Width = screen.Bounds.Width,
+                Height = screen.Bounds.Height,
+            }).ToArray(),
         });
     }
 
@@ -182,7 +231,7 @@ public partial class MainWindow : Window
             _slots[i].CoreWebView2?.Navigate(TestUrls[i]);
     }
 
-    private void MainWindow_KeyDown(object sender, KeyEventArgs e)
+    private void MainWindow_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
     {
         switch (e.Key)
         {

@@ -143,6 +143,9 @@ app.MapGet("/api/schedule", async (IHttpClientFactory httpFactory) =>
 
                 string TeamName(JsonNode? c) => c!["team"]!["shortDisplayName"]?.GetValue<string>()
                     ?? c["team"]!["displayName"]!.GetValue<string>();
+                string? TeamLogo(JsonNode? c) => c!["team"]!["logos"]?.AsArray()?
+                    .Select(logo => logo?["href"]?.GetValue<string>())
+                    .FirstOrDefault(href => !string.IsNullOrWhiteSpace(href));
                 int? Score(JsonNode? c) => c!["score"] is null ? null
                     : int.TryParse(c["score"]!.GetValue<string>(), out var s) ? s : null;
 
@@ -174,6 +177,8 @@ app.MapGet("/api/schedule", async (IHttpClientFactory httpFactory) =>
                     kickoff = kickoff.ToString("O"),
                     homeTeam = TeamName(home),
                     awayTeam = TeamName(away),
+                    homeLogo = TeamLogo(home),
+                    awayLogo = TeamLogo(away),
                     homeScore = Score(home),
                     awayScore = Score(away),
                     state,

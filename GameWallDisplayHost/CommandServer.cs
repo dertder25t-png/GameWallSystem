@@ -150,9 +150,12 @@ public sealed class CommandServer
     }
 
     /// <summary>Broadcasts a status update to every connected remote.</summary>
-    public async Task BroadcastAsync(SlotStatus status)
+    public async Task BroadcastAsync(object status)
     {
-        var json = JsonSerializer.Serialize(status);
+        var json = JsonSerializer.Serialize(status, new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        });
         var bytes = Encoding.UTF8.GetBytes(json);
 
         List<WebSocket> snapshot;

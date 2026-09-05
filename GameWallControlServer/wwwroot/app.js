@@ -6,6 +6,25 @@
   const pageHost = window.location.hostname || 'localhost';
   const savedHost = localStorage.getItem('gamewall_pc_ip');
 
+  function normalizeHost(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return pageHost;
+
+    try {
+      const withScheme = /^[a-z][a-z\d+.-]*:\/\//i.test(raw) ? raw : `http://${raw}`;
+      const parsed = new URL(withScheme);
+      if (!parsed.hostname || parsed.hostname === '0.0.0.0')
+        return pageHost === '0.0.0.0' ? 'localhost' : pageHost;
+      return parsed.hostname;
+    } catch (_) {
+      return raw.split('/')[0].split(':')[0] || pageHost;
+    }
+  }
+
+  const normalizedSavedHost = normalizeHost(savedHost);
+  if (savedHost && normalizedSavedHost !== savedHost)
+    localStorage.setItem('gamewall_pc_ip', normalizedSavedHost);
+
   // Visible-slot counts per layout, mirrors Layouts.cs on the Display Host.
   const LAYOUT_VISIBLE_COUNT = { '1': 1, '2': 2, '4': 4, '6': 6, '8': 8, 'featured': 5 };
 
@@ -14,7 +33,7 @@
     // load THIS page (localhost, or a LAN IP from a phone) is also the
     // Display Host's address - no manual entry needed. A saved override
     // takes precedence if the user ever types something different.
-    pcIp: savedHost || pageHost,
+    pcIp: normalizedSavedHost,
     ws: null,
     wsConnected: false,
     connectAttempts: 0,
@@ -25,6 +44,7 @@
       lastUrl: null, lastLabel: null, lastNetwork: null,
     })),
     schedule: [],
+    monitors: [],
   };
 
   // ---------------- DOM refs ----------------
@@ -43,6 +63,7 @@
     addGameBtn: document.getElementById('addGameBtn'),
     slotGrid: document.getElementById('slotGrid'),
     tickerTrack: document.getElementById('tickerTrack'),
+    monitorPicker: document.getElementById('monitorPicker'),
   };
 
   // ---------------- Manual "add a game" fallback ----------------
@@ -93,6 +114,8 @@
     if (!state.pcIp) return;
     if (state.ws) { try { state.ws.close(); } catch (_) {} }
 
+    state.pcIp = normalizeHost(state.pcIp);
+    el.pcIpInput.value = state.pcIp;
     const ws = new WebSocket(`ws://${state.pcIp}:${DISPLAY_HOST_PORT}/`);
     state.ws = ws;
 
@@ -101,6 +124,13 @@
       state.connectAttempts = 0;
       el.connState.textContent = 'connected';
       el.connState.className = 'conn-state conn-state--on';
+      sendCommand({ action: 'displays' });
+    };
+    ws.onmessage = (event) => {
+      try {
+        const message = JSON.parse(event.data);
+        if (message.type === 'displays') updateMonitors(message);
+      } catch (_) {}
     };
     ws.onclose = () => {
       state.wsConnected = false;
@@ -134,8 +164,25 @@
     }
   }
 
+  function updateMonitors(message) {
+    state.monitors = message.displays || [];
+    el.monitorPicker.innerHTML = '';
+    for (const monitor of state.monitors) {
+      const option = document.createElement('option');
+      option.value = monitor.index;
+      option.textContent = `${monitor.name} (${monitor.width}x${monitor.height})`;
+      el.monitorPicker.appendChild(option);
+    }
+    el.monitorPicker.disabled = state.monitors.length === 0;
+    if (state.monitors.length) el.monitorPicker.value = String(message.selectedIndex ?? 0);
+  }
+
+  el.monitorPicker.addEventListener('change', () => {
+    sendCommand({ action: 'monitor', monitor: Number(el.monitorPicker.value) });
+  });
+
   el.pcIpSave.addEventListener('click', () => {
-    const value = el.pcIpInput.value.trim();
+    const value = normalizeHost(el.pcIpInput.value);
     if (!value) return;
     state.pcIp = value;
     state.connectAttempts = 0;
@@ -225,7 +272,23 @@
 
       const teams = document.createElement('div');
       teams.className = 'game-card-teams';
-      teams.textContent = game.custom ? game.homeTeam : `${game.awayTeam} @ ${game.homeTeam}`;
+      if (game.custom) {
+        teams.textContent = game.homeTeam;
+      } else {
+        const awayLogo = document.createElement('img');
+        awayLogo.src = game.awayLogo || '';
+        awayLogo.alt = '';
+        awayLogo.loading = 'lazy';
+        awayLogo.hidden = !game.awayLogo;
+        const homeLogo = document.createElement('img');
+        homeLogo.src = game.homeLogo || '';
+        homeLogo.alt = '';
+        homeLogo.loading = 'lazy';
+        homeLogo.hidden = !game.homeLogo;
+        const label = document.createElement('span');
+        label.textContent = `${game.awayTeam} @ ${game.homeTeam}`;
+        teams.append(awayLogo, label, homeLogo);
+      }
 
       const meta = document.createElement('div');
       meta.className = 'game-card-meta';

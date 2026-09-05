@@ -13,7 +13,7 @@ webpage (built next) that talks to this app over the local network.
   share one WebView2 profile folder, so signing into an account once
   applies everywhere
 - Listens on a local WebSocket for commands: navigate a slot, mute/unmute,
-  set volume, close a slot, switch layout, or trigger test mode
+  set volume, close a slot, switch layout, move to a monitor, or trigger test mode
 - Test mode (press **F5**, or send a `test` command) loads 8 sample video
   clips into an 8-up grid so you can check your layout without waiting for
   kickoff
@@ -70,6 +70,8 @@ Connect a WebSocket to `ws://<host-ip>:5000/` and send JSON text frames:
 { "action": "close", "slot": 2 }
 { "action": "closeAll" }
 { "action": "layout", "layout": "8" }
+{ "action": "displays" }
+{ "action": "monitor", "monitor": 1 }
 { "action": "test" }
 ```
 

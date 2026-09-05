@@ -116,6 +116,25 @@ body {
   color: var(--accent);
 }
 
+.monitor-picker {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.monitor-picker select {
+  max-width: 220px;
+  background: var(--panel);
+  border: 1px solid var(--hairline);
+  color: var(--text);
+  padding: 6px 8px;
+  border-radius: 4px;
+  font-family: var(--font-data);
+  font-size: 12px;
+}
+
 .topbar-actions { display: flex; gap: 8px; }
 
 .btn-secondary, .btn-danger {
@@ -185,6 +204,16 @@ body {
 .game-card-teams {
   font-size: 14px;
   font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.game-card-teams img {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+  flex-shrink: 0;
 }
 
 .game-card-meta {
