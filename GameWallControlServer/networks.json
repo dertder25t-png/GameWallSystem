@@ -1,0 +1,22 @@
+{
+  "_comment": "Maps a broadcast network name (as reported by the schedule source) to a URL to open when a game on that network is dropped into a slot. There is no public API that hands out direct per-game deep links across streaming services, so most of these point at the network's general live/watch page rather than the exact game - you'll often still need to click the right game once the page loads. Edit freely to match your actual subscriptions (Hulu + Live TV, YouTube TV, Fubo, etc).",
+
+  "ESPN": "https://www.espn.com/watch/",
+  "ESPN2": "https://www.espn.com/watch/",
+  "ESPNU": "https://www.espn.com/watch/",
+  "ESPNews": "https://www.espn.com/watch/",
+  "SEC Network": "https://www.espn.com/watch/",
+  "ACC Network": "https://www.espn.com/watch/",
+  "ABC": "https://www.hulu.com/live-guide",
+  "CBS": "https://www.paramountplus.com/live-tv/",
+  "FOX": "https://www.foxsports.com/live",
+  "FS1": "https://www.foxsports.com/live",
+  "FS2": "https://www.foxsports.com/live",
+  "NBC": "https://www.peacocktv.com/live-tv",
+  "Peacock": "https://www.peacocktv.com/live-tv",
+  "Big Ten Network": "https://www.foxsports.com/live",
+  "The CW": "https://www.hulu.com/live-guide",
+  "CBS Sports Network": "https://www.paramountplus.com/live-tv/",
+
+  "_default": "https://www.hulu.com/live-guide"
+}

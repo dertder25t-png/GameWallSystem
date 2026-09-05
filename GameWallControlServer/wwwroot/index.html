@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>GameWall Remote</title>
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+  <div id="setupBar" class="setup-bar">
+    <label for="pcIpInput">Display PC (auto-detected, only change if needed)</label>
+    <input id="pcIpInput" type="text" />
+    <button id="pcIpSave">Reconnect</button>
+    <span id="connState" class="conn-state conn-state--off">connecting…</span>
+  </div>
+
+  <header class="topbar">
+    <h1 class="wordmark">GameWall</h1>
+
+    <div class="layout-picker" id="layoutPicker">
+      <button data-layout="1">1</button>
+      <button data-layout="2">2</button>
+      <button data-layout="4" class="active">4</button>
+      <button data-layout="6">6</button>
+      <button data-layout="8">8</button>
+      <button data-layout="featured">Featured</button>
+    </div>
+
+    <div class="topbar-actions">
+      <button id="testModeBtn" class="btn-secondary">Test mode</button>
+      <button id="closeAllBtn" class="btn-danger">Close all</button>
+    </div>
+  </header>
+
+  <div class="layout-root">
+
+    <aside class="sidebar">
+      <div class="sidebar-head">
+        <span>This weekend</span>
+        <span id="scheduleUpdated" class="sidebar-updated"></span>
+      </div>
+      <div id="scheduleWarning" class="schedule-warning" hidden></div>
+      <div id="scheduleList" class="schedule-list">
+        <p class="schedule-empty">Loading schedule…</p>
+      </div>
+
+      <details class="add-game">
+        <summary>Add a game manually</summary>
+        <div class="add-game-form">
+          <input id="addGameLabel" type="text" placeholder="Team A @ Team B" />
+          <input id="addGameUrl" type="text" placeholder="https://www.hulu.com/watch/..." />
+          <button id="addGameBtn">Add to list</button>
+        </div>
+      </details>
+
+      <p class="sidebar-hint">Tap a game, then tap a screen. Drag also works on desktop.</p>
+    </aside>
+
+    <main class="slot-grid" id="slotGrid">
+      <!-- 8 slot cards injected by app.js -->
+    </main>
+
+  </div>
+
+  <footer class="ticker" id="ticker">
+    <div class="ticker-track" id="tickerTrack">Loading scores…</div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,62 @@
+<Window x:Class="GameWallDisplayHost.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
+        Title="GameWall Display Host"
+        WindowStyle="None"
+        WindowState="Maximized"
+        Background="Black"
+        ResizeMode="CanResize">
+
+    <Grid>
+        <!-- The 8 slots live in this grid. Row/Col/Span are set in code
+             per the active layout (see Layouts.cs / MainWindow.xaml.cs). -->
+        <Grid x:Name="SlotGrid" Margin="0">
+            <Border x:Name="Border0" BorderBrush="#222" BorderThickness="1">
+                <wv2:WebView2 x:Name="Slot0" />
+            </Border>
+            <Border x:Name="Border1" BorderBrush="#222" BorderThickness="1">
+                <wv2:WebView2 x:Name="Slot1" />
+            </Border>
+            <Border x:Name="Border2" BorderBrush="#222" BorderThickness="1">
+                <wv2:WebView2 x:Name="Slot2" />
+            </Border>
+            <Border x:Name="Border3" BorderBrush="#222" BorderThickness="1">
+                <wv2:WebView2 x:Name="Slot3" />
+            </Border>
+            <Border x:Name="Border4" BorderBrush="#222" BorderThickness="1">
+                <wv2:WebView2 x:Name="Slot4" />
+            </Border>
+            <Border x:Name="Border5" BorderBrush="#222" BorderThickness="1">
+                <wv2:WebView2 x:Name="Slot5" />
+            </Border>
+            <Border x:Name="Border6" BorderBrush="#222" BorderThickness="1">
+                <wv2:WebView2 x:Name="Slot6" />
+            </Border>
+            <Border x:Name="Border7" BorderBrush="#222" BorderThickness="1">
+                <wv2:WebView2 x:Name="Slot7" />
+            </Border>
+        </Grid>
+
+        <!-- Small status overlay: shows connect address, fades on its own timer if you add one later. -->
+        <Border x:Name="StatusOverlay"
+                Background="#CC000000"
+                CornerRadius="6"
+                Padding="10,6"
+                HorizontalAlignment="Left"
+                VerticalAlignment="Top"
+                Margin="12">
+            <StackPanel>
+                <TextBlock x:Name="StatusText"
+                           Foreground="White"
+                           FontFamily="Consolas"
+                           FontSize="13"
+                           Text="Starting..." />
+                <TextBlock Foreground="#AAAAAA"
+                           FontFamily="Consolas"
+                           FontSize="11"
+                           Text="F5 = test mode   Esc = quit   F11 = hide this overlay" />
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>
