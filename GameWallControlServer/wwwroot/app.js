@@ -3,6 +3,8 @@
 
   const SLOT_COUNT = 8;
   const DISPLAY_HOST_PORT = 5000;
+  const pageHost = window.location.hostname || 'localhost';
+  const savedHost = localStorage.getItem('gamewall_pc_ip');
 
   // Visible-slot counts per layout, mirrors Layouts.cs on the Display Host.
   const LAYOUT_VISIBLE_COUNT = { '1': 1, '2': 2, '4': 4, '6': 6, '8': 8, 'featured': 5 };
@@ -12,7 +14,7 @@
     // load THIS page (localhost, or a LAN IP from a phone) is also the
     // Display Host's address - no manual entry needed. A saved override
     // takes precedence if the user ever types something different.
-    pcIp: localStorage.getItem('gamewall_pc_ip') || window.location.hostname || 'localhost',
+    pcIp: savedHost || pageHost,
     ws: null,
     wsConnected: false,
     connectAttempts: 0,
@@ -103,6 +105,17 @@
     ws.onclose = () => {
       state.wsConnected = false;
       state.connectAttempts++;
+
+      // A previously saved address can become stale after the wall PC's
+      // DHCP lease changes. If the remote was opened from the wall PC/LAN,
+      // retry the address that served this page before asking the user to
+      // troubleshoot the firewall.
+      if (state.connectAttempts >= 3 && state.pcIp !== pageHost) {
+        state.pcIp = pageHost;
+        localStorage.setItem('gamewall_pc_ip', pageHost);
+        el.pcIpInput.value = pageHost;
+        state.connectAttempts = 0;
+      }
       el.connState.textContent = state.connectAttempts >= 3
         ? 'not connected — check firewall?'
         : 'not connected';

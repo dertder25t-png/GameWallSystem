@@ -89,28 +89,36 @@ app.MapGet("/api/schedule", async (IHttpClientFactory httpFactory) =>
     // to trip rate-limiting/bot-protection than hammering the endpoint.
     var rangeStart = now.AddDays(-1).ToString("yyyyMMdd");
     var rangeEnd = now.AddDays(2).ToString("yyyyMMdd");
-    var url = $"https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?dates={rangeStart}-{rangeEnd}&groups=80&limit=300";
+    var urls = new[]
+    {
+        $"https://site.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?dates={rangeStart}-{rangeEnd}&groups=80&limit=300",
+        $"https://site.web.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?dates={rangeStart}-{rangeEnd}&groups=80&limit=300"
+    };
 
     JsonNode? root = null;
-    try
+    foreach (var url in urls)
     {
-        var response = await client.GetAsync(url);
-        var body = await response.Content.ReadAsStringAsync();
-        if (!response.IsSuccessStatusCode)
+        try
         {
-            fetchError = $"ESPN returned {(int)response.StatusCode} {response.StatusCode}";
-            app.Logger.LogWarning("Schedule fetch failed: {Error}. Body starts: {Snippet}",
-                fetchError, body.Length > 200 ? body[..200] : body);
-        }
-        else
-        {
+            var response = await client.GetAsync(url);
+            var body = await response.Content.ReadAsStringAsync();
+            if (!response.IsSuccessStatusCode)
+            {
+                fetchError = $"ESPN returned {(int)response.StatusCode} {response.StatusCode}";
+                app.Logger.LogWarning("Schedule fetch failed for {Url}: {Error}. Body starts: {Snippet}",
+                    url, fetchError, body.Length > 200 ? body[..200] : body);
+                continue;
+            }
+
             root = JsonNode.Parse(body);
+            fetchError = null;
+            break;
         }
-    }
-    catch (Exception ex)
-    {
-        fetchError = ex.Message;
-        app.Logger.LogWarning("Schedule fetch threw: {Message}", ex.Message);
+        catch (Exception ex)
+        {
+            fetchError = ex.Message;
+            app.Logger.LogWarning("Schedule fetch threw for {Url}: {Message}", url, ex.Message);
+        }
     }
 
     var events = root?["events"]?.AsArray();
