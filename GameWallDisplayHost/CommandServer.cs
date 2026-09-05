@@ -1,3 +1,4 @@
+using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Net.WebSockets;
@@ -109,11 +110,21 @@ public sealed class CommandServer
         {
             while (socket.State == WebSocketState.Open)
             {
-                var result = await socket.ReceiveAsync(buffer, CancellationToken.None);
+                using var message = new MemoryStream();
+                WebSocketReceiveResult result;
+                do
+                {
+                    result = await socket.ReceiveAsync(buffer, CancellationToken.None);
+                    if (result.MessageType == WebSocketMessageType.Close)
+                        break;
+                    message.Write(buffer, 0, result.Count);
+                }
+                while (!result.EndOfMessage);
+
                 if (result.MessageType == WebSocketMessageType.Close)
                     break;
 
-                var json = Encoding.UTF8.GetString(buffer, 0, result.Count);
+                var json = Encoding.UTF8.GetString(message.ToArray());
                 try
                 {
                     var command = JsonSerializer.Deserialize<SlotCommand>(json,

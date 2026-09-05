@@ -96,8 +96,10 @@ actually subscribe to; it's plain JSON, no rebuild needed.
 
 ## The Remote says "not connected"
 
-The Remote auto-detects the Display Host's address — there's nothing to
-type. If it still won't connect, check in this order:
+The remote can auto-detect the Display Host only when the page was opened
+from the wall PC. From a phone, open http://<wall-ip>:5050 and use that
+same wall IP in the Display PC address field. If it still won't connect,
+check in this order:
 
 1. **Is the GameWall Display window actually open and running on the PC?**
    Look for a window titled "GameWall Display" in the taskbar. If it

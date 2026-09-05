@@ -43,8 +43,8 @@ Using it
 3. Your browser opens the remote page automatically on this PC
    (http://localhost:5050) — that one's ready to use immediately
 4. To control it from your phone instead: connect your phone to the same
-   WiFi, open a browser to http://<that-ip>:5050, and type the same IP
-   into the "Display PC address" box at the top, then tap Connect
+  private WiFi, open a browser to http://<that-ip>:5050, type the same IP
+  into the "Display PC address" box at the top, then tap Reconnect
 5. Tap "Test mode" to confirm your screen layout before kickoff
 
 If something goes wrong with the first build, the .bat window will show

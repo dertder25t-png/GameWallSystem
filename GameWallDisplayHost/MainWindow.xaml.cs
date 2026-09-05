@@ -45,14 +45,22 @@ public partial class MainWindow : Window
         _slots = new[] { Slot0, Slot1, Slot2, Slot3, Slot4, Slot5, Slot6, Slot7 };
         _borders = new[] { Border0, Border1, Border2, Border3, Border4, Border5, Border6, Border7 };
 
-        await InitializeWebViewsAsync();
-        ApplyLayout(_currentLayout);
+        try
+        {
+            await InitializeWebViewsAsync();
+            ApplyLayout(_currentLayout);
 
-        _server = new CommandServer(ListenPort);
-        _server.CommandReceived += OnCommandReceived;
-        _server.Start();
+            _server = new CommandServer(ListenPort);
+            _server.CommandReceived += OnCommandReceived;
+            _server.Start();
 
-        StatusText.Text = $"Listening: {GetLocalIPv4()}:{ListenPort}";
+            StatusText.Text = $"Listening: {GetLocalIPv4()}:{ListenPort}";
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = $"Startup failed: {ex.Message}";
+            StatusText.Foreground = System.Windows.Media.Brushes.OrangeRed;
+        }
     }
 
     /// <summary>

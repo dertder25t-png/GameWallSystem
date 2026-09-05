@@ -60,6 +60,7 @@ string DefaultWatchUrl()
 app.MapGet("/api/schedule", async (IHttpClientFactory httpFactory) =>
 {
     var client = httpFactory.CreateClient();
+    client.Timeout = TimeSpan.FromSeconds(15);
 
     // ESPN's public scoreboard endpoint sits behind bot-protection that
     // will 403 requests that don't look like a real browser. A generic
@@ -150,9 +151,14 @@ app.MapGet("/api/schedule", async (IHttpClientFactory httpFactory) =>
                         network = names[0]!.GetValue<string>();
                 }
 
-                var watchUrl = network is not null && networkMap.TryGetValue(network, out var mapped)
-                    ? mapped
-                    : defaultUrl;
+                var eventUrl = ev["links"]?.AsArray()?
+                    .Select(link => link?["href"]?.GetValue<string>())
+                    .FirstOrDefault(link => link is not null &&
+                        link.Contains("espn.com", StringComparison.OrdinalIgnoreCase));
+                var mapped = network is not null && networkMap.TryGetValue(network, out var configured)
+                    ? configured
+                    : null;
+                var watchUrl = eventUrl ?? mapped ?? defaultUrl;
 
                 games.Add(new
                 {
@@ -165,7 +171,9 @@ app.MapGet("/api/schedule", async (IHttpClientFactory httpFactory) =>
                     state,
                     statusDetail = detail,
                     network = network ?? "TBD",
-                    watchUrl
+                    watchUrl,
+                    watchUrlSource = eventUrl is not null ? "event" : mapped is not null ? "network" : "default",
+                    requiresLogin = true
                 });
             }
             catch (Exception ex)

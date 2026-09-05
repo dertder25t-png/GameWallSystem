@@ -172,7 +172,7 @@
       if (data.sourceOk === false) {
         el.scheduleWarning.hidden = false;
         el.scheduleWarning.textContent =
-          'Could not reach the schedule source right now (it may be temporarily blocking requests). ' +
+          `ESPN schedule unavailable: ${data.error || 'unknown server error'}. ` +
           'Use "Add a game manually" below in the meantime.';
       } else {
         el.scheduleWarning.hidden = true;
