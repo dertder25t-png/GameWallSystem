@@ -27,6 +27,8 @@
       <button data-layout="featured">Featured</button>
     </div>
 
+    <button id="subscriptionsBtn" class="btn-secondary" title="Choose streaming subscriptions">Subscriptions</button>
+
     <label class="monitor-picker" for="monitorPicker">Display
       <select id="monitorPicker" disabled>
         <option>Connecting...</option>
@@ -72,6 +74,25 @@
   <footer class="ticker" id="ticker">
     <div class="ticker-track" id="tickerTrack">Loading scores…</div>
   </footer>
+
+  <div id="subscriptionsModal" class="modal-backdrop" hidden>
+    <section class="subscriptions-modal" role="dialog" aria-modal="true" aria-labelledby="subscriptionsTitle">
+      <div class="modal-head">
+        <div>
+          <p class="modal-kicker">Remote setup</p>
+          <h2 id="subscriptionsTitle">Select your subscriptions</h2>
+        </div>
+        <button id="subscriptionsCloseBtn" class="modal-close" type="button" aria-label="Close">&times;</button>
+      </div>
+      <p class="modal-copy">GameWall uses these choices to open each network's general live or watch page.</p>
+      <div id="subscriptionsList" class="subscriptions-list"><p>Loading services...</p></div>
+      <p id="subscriptionsError" class="modal-error" hidden></p>
+      <div class="modal-actions">
+        <button id="subscriptionsSkipBtn" class="btn-secondary" type="button">Skip for now</button>
+        <button id="subscriptionsSaveBtn" class="btn-primary" type="button">Save subscriptions</button>
+      </div>
+    </section>
+  </div>
 
   <script src="app.js"></script>
 </body>

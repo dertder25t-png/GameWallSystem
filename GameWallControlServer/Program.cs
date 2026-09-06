@@ -23,39 +23,27 @@ app.UseStaticFiles();
 // networks.json without restarting the server.
 string NetworksJsonPath() => Path.Combine(app.Environment.ContentRootPath, "networks.json");
 
-Dictionary<string, string> LoadNetworkMap()
+JsonObject LoadNetworksData()
 {
-    var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+    var data = new JsonObject();
     try
     {
         var json = File.ReadAllText(NetworksJsonPath());
-        var node = JsonNode.Parse(json)!.AsObject();
-        foreach (var kvp in node)
-        {
-            if (kvp.Key.StartsWith('_')) continue;
-            map[kvp.Key] = kvp.Value!.GetValue<string>();
-        }
+        data = JsonNode.Parse(json)!.AsObject();
     }
     catch (Exception ex)
     {
         app.Logger.LogWarning("Could not read networks.json: {Message}", ex.Message);
     }
-    return map;
+    return data;
 }
 
-string DefaultWatchUrl()
+string DefaultWatchUrl(JsonObject data)
 {
-    try
-    {
-        var json = File.ReadAllText(NetworksJsonPath());
-        var node = JsonNode.Parse(json)!.AsObject();
-        return node["_default"]?.GetValue<string>() ?? "https://www.espn.com/watch/";
-    }
-    catch
-    {
-        return "https://www.espn.com/watch/";
-    }
+    return data["default"]?.GetValue<string>() ?? "https://www.espn.com/watch/";
 }
+
+app.MapGet("/api/networks", () => Results.Json(LoadNetworksData()));
 
 app.MapGet("/api/schedule", async (IHttpClientFactory httpFactory) =>
 {
@@ -73,8 +61,14 @@ app.MapGet("/api/schedule", async (IHttpClientFactory httpFactory) =>
     client.DefaultRequestHeaders.Referrer = new Uri("https://www.espn.com/college-football/scoreboard");
     client.DefaultRequestHeaders.Add("Origin", "https://www.espn.com");
 
-    var networkMap = LoadNetworkMap();
-    var defaultUrl = DefaultWatchUrl();
+    var networksData = LoadNetworksData();
+    var networkEntries = networksData["networks"]?.AsObject();
+    var priority = networksData["priority"]?.AsArray()
+        .Select(value => value?.GetValue<string>())
+        .Where(value => value is not null)
+        .Select(value => value!)
+        .ToList() ?? [];
+    var defaultUrl = DefaultWatchUrl(networksData);
 
     var now = DateTimeOffset.Now;
     var windowStart = now.AddHours(-12);   // still show games that just finished
@@ -162,14 +156,19 @@ app.MapGet("/api/schedule", async (IHttpClientFactory httpFactory) =>
                         network = names[0]!.GetValue<string>();
                 }
 
-                var eventUrl = ev["links"]?.AsArray()?
-                    .Select(link => link?["href"]?.GetValue<string>())
-                    .FirstOrDefault(link => link is not null &&
-                        link.Contains("espn.com", StringComparison.OrdinalIgnoreCase));
-                var mapped = network is not null && networkMap.TryGetValue(network, out var configured)
-                    ? configured
-                    : null;
-                var watchUrl = eventUrl ?? mapped ?? defaultUrl;
+                string? mapped = null;
+                if (network is not null && networkEntries?[network] is JsonObject entry)
+                {
+                    foreach (var serviceId in priority)
+                    {
+                        if (entry[serviceId]?.GetValue<string>() is { } url)
+                        {
+                            mapped = url;
+                            break;
+                        }
+                    }
+                }
+                var watchUrl = mapped ?? defaultUrl;
 
                 games.Add(new
                 {
@@ -185,7 +184,7 @@ app.MapGet("/api/schedule", async (IHttpClientFactory httpFactory) =>
                     statusDetail = detail,
                     network = network ?? "TBD",
                     watchUrl,
-                    watchUrlSource = eventUrl is not null ? "event" : mapped is not null ? "network" : "default",
+                    watchUrlSource = mapped is not null ? "network" : "default",
                     requiresLogin = true
                 });
             }

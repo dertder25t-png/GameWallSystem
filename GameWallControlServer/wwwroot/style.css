@@ -148,6 +148,32 @@ body {
 
 .btn-danger { color: var(--danger); border-color: rgba(192,91,79,0.4); }
 
+.btn-primary {
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 8px 14px;
+  background: var(--accent);
+  color: #14161A;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+/* ---------- subscriptions modal ---------- */
+.modal-backdrop { position: fixed; inset: 0; z-index: 10; display: grid; place-items: center; padding: 20px; background: rgba(15, 17, 20, 0.86); }
+.modal-backdrop[hidden] { display: none; }
+.subscriptions-modal { width: min(520px, 100%); max-height: min(680px, 100%); overflow-y: auto; background: var(--panel); border: 1px solid var(--hairline); border-radius: 6px; padding: 22px; box-shadow: 0 18px 60px rgba(0, 0, 0, 0.45); }
+.modal-head, .modal-actions { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.modal-kicker { margin: 0 0 4px; color: var(--accent); font: 11px var(--font-data); text-transform: uppercase; }
+.subscriptions-modal h2 { margin: 0; font-size: 22px; }
+.modal-copy { color: var(--text-muted); font-size: 13px; line-height: 1.5; }
+.modal-close { background: none; border: 0; color: var(--text-muted); font-size: 26px; line-height: 1; padding: 2px 6px; }
+.subscriptions-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 18px 0; }
+.subscription-option { display: flex; align-items: center; gap: 9px; padding: 10px; border: 1px solid var(--hairline); border-radius: 4px; color: var(--text); font-size: 13px; }
+.subscription-option:has(input:checked) { border-color: var(--accent); background: rgba(232, 163, 61, 0.08); }
+.subscription-option input { accent-color: var(--accent); }
+.modal-error { color: var(--danger); font-size: 12px; }
+@media (max-width: 520px) { .subscriptions-list { grid-template-columns: 1fr; } }
+
 /* ---------- layout ---------- */
 
 .layout-root {

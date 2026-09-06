@@ -1,10 +1,12 @@
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
 using System.Windows;
 using FormsScreen = System.Windows.Forms.Screen;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Interop;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.Wpf;
 
@@ -33,6 +35,20 @@ public partial class MainWindow : Window
     private CoreWebView2Environment? _environment;
     private CommandServer? _server;
     private LayoutDefinition _currentLayout = Layouts.FourUp;
+    private int _selectedMonitorIndex;
+
+    private const uint SwpNoActivate = 0x0010;
+    private const uint SwpNoZOrder = 0x0004;
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool SetWindowPos(
+        IntPtr hWnd,
+        IntPtr hWndInsertAfter,
+        int x,
+        int y,
+        int cx,
+        int cy,
+        uint flags);
 
     public MainWindow()
     {
@@ -48,6 +64,7 @@ public partial class MainWindow : Window
 
         try
         {
+            _selectedMonitorIndex = GetPrimaryMonitorIndex();
             await InitializeWebViewsAsync();
             ApplyLayout(_currentLayout);
 
@@ -172,15 +189,25 @@ public partial class MainWindow : Window
     private void MoveToMonitor(int monitorIndex)
     {
         var screens = FormsScreen.AllScreens;
-        if (monitorIndex < 0 || monitorIndex >= screens.Length) return;
+        if (monitorIndex < 0 || monitorIndex >= screens.Length)
+        {
+            StatusText.Text = $"Invalid monitor selection: {monitorIndex}";
+            return;
+        }
 
         var bounds = screens[monitorIndex].Bounds;
+        var windowHandle = new WindowInteropHelper(this).Handle;
         WindowState = WindowState.Normal;
-        Left = bounds.Left;
-        Top = bounds.Top;
-        Width = bounds.Width;
-        Height = bounds.Height;
+        if (!SetWindowPos(windowHandle, IntPtr.Zero, bounds.Left, bounds.Top,
+                bounds.Width, bounds.Height, SwpNoActivate | SwpNoZOrder))
+        {
+            var error = Marshal.GetLastWin32Error();
+            StatusText.Text = $"Could not move to monitor {monitorIndex}: Win32 error {error}";
+            return;
+        }
+
         WindowState = WindowState.Maximized;
+        _selectedMonitorIndex = monitorIndex;
         _ = SendDisplayStatusAsync();
     }
 
@@ -189,13 +216,12 @@ public partial class MainWindow : Window
         if (_server is null) return;
 
         var screens = FormsScreen.AllScreens;
-        var selectedIndex = Array.FindIndex(screens, screen =>
-            screen.Bounds.Contains((int)Left + 10, (int)Top + 10));
-        if (selectedIndex < 0) selectedIndex = 0;
+        if (_selectedMonitorIndex >= screens.Length)
+            _selectedMonitorIndex = GetPrimaryMonitorIndex(screens);
 
         await _server.BroadcastAsync(new DisplayStatus
         {
-            SelectedIndex = selectedIndex,
+            SelectedIndex = _selectedMonitorIndex,
             Displays = screens.Select((screen, index) => new DisplayInfo
             {
                 Index = index,
@@ -206,6 +232,17 @@ public partial class MainWindow : Window
                 Height = screen.Bounds.Height,
             }).ToArray(),
         });
+    }
+
+    private static int GetPrimaryMonitorIndex()
+    {
+        return GetPrimaryMonitorIndex(FormsScreen.AllScreens);
+    }
+
+    private static int GetPrimaryMonitorIndex(FormsScreen[] screens)
+    {
+        var primaryIndex = Array.FindIndex(screens, screen => screen.Primary);
+        return primaryIndex >= 0 ? primaryIndex : 0;
     }
 
     private void SetMute(int slotIndex, bool muted)

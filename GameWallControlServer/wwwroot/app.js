@@ -35,16 +35,19 @@
     // takes precedence if the user ever types something different.
     pcIp: normalizedSavedHost,
     ws: null,
+    wsConnectTimer: null,
     wsConnected: false,
     connectAttempts: 0,
     selectedGame: null,
     layout: '4',
     slots: Array.from({ length: SLOT_COUNT }, () => ({
       label: null, network: null, muted: false,
-      lastUrl: null, lastLabel: null, lastNetwork: null,
+      lastUrl: null, lastLabel: null, lastNetwork: null, lastGame: null,
     })),
     schedule: [],
     monitors: [],
+    networksData: null,
+    subscriptions: loadSubscriptions(),
   };
 
   // ---------------- DOM refs ----------------
@@ -64,7 +67,107 @@
     slotGrid: document.getElementById('slotGrid'),
     tickerTrack: document.getElementById('tickerTrack'),
     monitorPicker: document.getElementById('monitorPicker'),
+    subscriptionsBtn: document.getElementById('subscriptionsBtn'),
+    subscriptionsModal: document.getElementById('subscriptionsModal'),
+    subscriptionsList: document.getElementById('subscriptionsList'),
+    subscriptionsError: document.getElementById('subscriptionsError'),
+    subscriptionsCloseBtn: document.getElementById('subscriptionsCloseBtn'),
+    subscriptionsSkipBtn: document.getElementById('subscriptionsSkipBtn'),
+    subscriptionsSaveBtn: document.getElementById('subscriptionsSaveBtn'),
   };
+
+  function loadSubscriptions() {
+    try {
+      const value = JSON.parse(localStorage.getItem('gamewall_subscriptions') || 'null');
+      return Array.isArray(value) ? value : [];
+    } catch (_) { return []; }
+  }
+
+  function pickWatchUrl(networkName, userServiceIds, networksData, fallbackUrl) {
+    if (!networksData) return fallbackUrl;
+    const entry = networksData.networks?.[networkName];
+    if (entry) {
+      for (const serviceId of networksData.priority || []) {
+        if (userServiceIds.includes(serviceId) && entry[serviceId]) return entry[serviceId];
+      }
+      for (const serviceId of userServiceIds) {
+        if (entry[serviceId]) return entry[serviceId];
+      }
+    }
+    for (const serviceId of networksData.priority || []) {
+      if (userServiceIds.includes(serviceId)) {
+        const url = networksData.services?.[serviceId]?.defaultUrl;
+        if (url) return url;
+      }
+    }
+    return networksData.default || fallbackUrl;
+  }
+
+  function renderSubscriptionOptions() {
+    const services = state.networksData?.services;
+    if (!services) {
+      el.subscriptionsList.innerHTML = '<p>Loading services...</p>';
+      return;
+    }
+    el.subscriptionsList.innerHTML = '';
+    for (const [id, service] of Object.entries(services)) {
+      const label = document.createElement('label');
+      label.className = 'subscription-option';
+      const checkbox = document.createElement('input');
+      checkbox.type = 'checkbox';
+      checkbox.value = id;
+      checkbox.checked = state.subscriptions.includes(id);
+      const text = document.createElement('span');
+      text.textContent = service.label || id;
+      label.append(checkbox, text);
+      el.subscriptionsList.appendChild(label);
+    }
+  }
+
+  function openSubscriptionsModal() {
+    renderSubscriptionOptions();
+    el.subscriptionsError.hidden = true;
+    el.subscriptionsModal.hidden = false;
+  }
+
+  function closeSubscriptionsModal() {
+    el.subscriptionsModal.hidden = true;
+  }
+
+  function saveSubscriptions(serviceIds) {
+    state.subscriptions = serviceIds;
+    localStorage.setItem('gamewall_subscriptions', JSON.stringify(serviceIds));
+    closeSubscriptionsModal();
+    renderSchedule();
+    for (const slot of state.slots) {
+      if (!slot.lastGame || slot.lastGame.custom) continue;
+      const url = pickWatchUrl(slot.lastGame.network, state.subscriptions, state.networksData, slot.lastGame.watchUrl);
+      slot.lastUrl = url;
+      if (slot.label) sendCommand({ action: 'navigate', slot: state.slots.indexOf(slot), url });
+    }
+    renderSlots();
+  }
+
+  el.subscriptionsBtn.addEventListener('click', openSubscriptionsModal);
+  el.subscriptionsCloseBtn.addEventListener('click', closeSubscriptionsModal);
+  el.subscriptionsSkipBtn.addEventListener('click', () => saveSubscriptions([]));
+  el.subscriptionsSaveBtn.addEventListener('click', () => {
+    const selected = [...el.subscriptionsList.querySelectorAll('input:checked')].map(input => input.value);
+    saveSubscriptions(selected);
+  });
+
+  async function loadNetworks() {
+    try {
+      const res = await fetch('/api/networks');
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      state.networksData = await res.json();
+      renderSubscriptionOptions();
+    } catch (err) {
+      el.subscriptionsError.hidden = false;
+      el.subscriptionsError.textContent = 'Could not load subscription services. The generic schedule links will still work.';
+    }
+    if (localStorage.getItem('gamewall_subscriptions') === null) openSubscriptionsModal();
+  }
 
   // ---------------- Manual "add a game" fallback ----------------
   // Used when the schedule source is blocked/unavailable, or for any game
@@ -118,8 +221,15 @@
     el.pcIpInput.value = state.pcIp;
     const ws = new WebSocket(`ws://${state.pcIp}:${DISPLAY_HOST_PORT}/`);
     state.ws = ws;
+    clearTimeout(state.wsConnectTimer);
+    state.wsConnectTimer = setTimeout(() => {
+      if (state.ws === ws && ws.readyState === WebSocket.CONNECTING) {
+        ws.close();
+      }
+    }, 5000);
 
     ws.onopen = () => {
+      clearTimeout(state.wsConnectTimer);
       state.wsConnected = true;
       state.connectAttempts = 0;
       el.connState.textContent = 'connected';
@@ -133,6 +243,8 @@
       } catch (_) {}
     };
     ws.onclose = () => {
+      clearTimeout(state.wsConnectTimer);
+      if (state.ws === ws) state.ws = null;
       state.wsConnected = false;
       state.connectAttempts++;
 
@@ -438,13 +550,17 @@
   function assignGameToSlot(game, slotIndex) {
     const slot = state.slots[slotIndex];
     const label = game.custom ? game.homeTeam : `${game.awayTeam} @ ${game.homeTeam}`;
+    const watchUrl = game.custom
+      ? game.watchUrl
+      : pickWatchUrl(game.network, state.subscriptions, state.networksData, game.watchUrl);
     slot.label = label;
     slot.network = game.network;
     slot.muted = false;
-    slot.lastUrl = game.watchUrl;
+    slot.lastUrl = watchUrl;
     slot.lastLabel = label;
     slot.lastNetwork = game.network;
-    sendCommand({ action: 'navigate', slot: slotIndex, url: game.watchUrl });
+    slot.lastGame = game;
+    sendCommand({ action: 'navigate', slot: slotIndex, url: watchUrl });
     sendCommand({ action: 'mute', slot: slotIndex, muted: false });
     renderSlots();
   }
@@ -472,6 +588,7 @@
   // ---------------- init ----------------
 
   renderSlots();
+  loadNetworks();
   loadSchedule();
   setInterval(loadSchedule, 30000);
 })();

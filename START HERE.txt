@@ -19,7 +19,8 @@ The FIRST time you run it:
   This first run takes a minute or two while it builds.
 
 EVERY time after that:
-  - Double-clicking the same .bat file just launches GameWall instantly.
+  - Double-clicking the same .bat file quickly republishes any source changes,
+    then launches the current GameWall build.
   - Or, if you'd rather skip the .bat entirely, the real .exe files are
     sitting right here after that first build:
         dist\DisplayHost\GameWallDisplayHost.exe

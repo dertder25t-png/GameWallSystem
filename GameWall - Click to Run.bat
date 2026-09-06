@@ -17,27 +17,23 @@ if %ERRORLEVEL% NEQ 0 (
   exit /b 1
 )
 
-if not exist "%DISPLAY_DIST%\GameWallDisplayHost.exe" (
-  echo Building GameWall Display for the first time - this can take a minute or two...
-  dotnet publish GameWallDisplayHost\GameWallDisplayHost.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o "%DISPLAY_DIST%"
-  if %ERRORLEVEL% NEQ 0 (
-    echo.
-    echo Build failed - see the error above. Common cause: no internet access
-    echo during this first build ^(it needs to download the WebView2 package once^).
-    pause
-    exit /b 1
-  )
+echo Building or updating GameWall Display...
+dotnet publish GameWallDisplayHost\GameWallDisplayHost.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o "%DISPLAY_DIST%"
+if %ERRORLEVEL% NEQ 0 (
+  echo.
+  echo Build failed - see the error above. Common cause: no internet access
+  echo during this first build ^(it needs to download the WebView2 package once^).
+  pause
+  exit /b 1
 )
 
-if not exist "%CONTROL_DIST%\GameWallControlServer.exe" (
-  echo Building GameWall Control Server for the first time...
-  dotnet publish GameWallControlServer\GameWallControlServer.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o "%CONTROL_DIST%"
-  if %ERRORLEVEL% NEQ 0 (
-    echo.
-    echo Build failed - see the error above.
-    pause
-    exit /b 1
-  )
+echo Building or updating GameWall Control Server...
+dotnet publish GameWallControlServer\GameWallControlServer.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o "%CONTROL_DIST%"
+if %ERRORLEVEL% NEQ 0 (
+  echo.
+  echo Build failed - see the error above.
+  pause
+  exit /b 1
 )
 
 echo.

@@ -72,6 +72,12 @@ drag-and-drop also works as a bonus on desktop browsers. Includes the
 layout picker (1/2/4/6/8/featured), per-slot mute/volume/close, test mode,
 and close-all.
 
+The monitor picker sends the selected display index to the Display Host. The
+host positions its borderless window with Windows display bounds and tracks
+the selected display explicitly, supporting per-monitor scaling and monitors
+arranged left or above the primary display. If a move fails, the host status
+overlay reports the Windows error.
+
 ## The one real limitation, stated plainly
 
 There's no public API that hands out a direct, per-game deep link into

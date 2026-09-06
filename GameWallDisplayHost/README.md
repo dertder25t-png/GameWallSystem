@@ -77,6 +77,11 @@ Connect a WebSocket to `ws://<host-ip>:5000/` and send JSON text frames:
 
 `layout` accepts: `"1"`, `"2"`, `"4"`, `"6"`, `"8"`, `"featured"`.
 
+Monitor changes use the Windows display bounds directly, so they support
+per-monitor DPI scaling and monitors positioned left or above the primary
+display. The host tracks the selected monitor explicitly, and reports a
+Windows error in the status overlay if a move fails.
+
 ## What's deliberately not in this app
 
 - No schedule/scores fetching — that belongs in the Control Server, which
