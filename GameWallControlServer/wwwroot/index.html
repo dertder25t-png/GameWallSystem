@@ -28,6 +28,19 @@
     </div>
 
     <button id="subscriptionsBtn" class="btn-secondary" title="Choose streaming subscriptions">Subscriptions</button>
+    <button id="customLayoutBtn" class="btn-secondary" title="Design custom visual screen layout">Custom Layout</button>
+    <button id="dayPlannerBtn" class="btn-secondary" title="Plan your full game day timeline"><span class="planner-icon">&#x23F1;</span> Day Planner <span id="dayPlannerBadge" class="planner-badge">Off</span></button>
+    <button id="historyBtn" class="btn-secondary" title="View action history and undo changes">&#x21BA; History <span id="historyBadge" class="history-badge">0</span></button>
+
+    <div class="preset-tools">
+      <select id="presetPicker" aria-label="Saved layout presets">
+        <option value="">Presets</option>
+      </select>
+      <button id="savePresetBtn" class="btn-secondary">Save layout</button>
+      <button id="applyPresetBtn" class="btn-secondary" disabled>Apply</button>
+    </div>
+    <button id="themeToggleBtn" class="btn-secondary" type="button">Light theme</button>
+    <span id="clientsStatus" class="clients-status" aria-live="polite"></span>
 
     <label class="monitor-picker" for="monitorPicker">Display
       <select id="monitorPicker" disabled>
@@ -36,6 +49,7 @@
     </label>
 
     <div class="topbar-actions">
+      <button id="autoFillBtn" class="btn-secondary" title="Automatically populate empty screens with top live/upcoming games">Auto-fill</button>
       <button id="testModeBtn" class="btn-secondary">Test mode</button>
       <button id="closeAllBtn" class="btn-danger">Close all</button>
     </div>
@@ -49,6 +63,19 @@
         <span id="scheduleUpdated" class="sidebar-updated"></span>
       </div>
       <div id="scheduleWarning" class="schedule-warning" hidden></div>
+      <div class="sport-filters" aria-label="Sports">
+        <label><input type="checkbox" data-sport="football" checked /> Football</label>
+        <label><input type="checkbox" data-sport="mma" checked /> UFC</label>
+        <label><input type="checkbox" data-sport="nascar" checked /> NASCAR</label>
+        <label><input type="checkbox" data-sport="f1" checked /> F1</label>
+      </div>
+      <div class="pinned-teams">
+        <label for="pinnedTeamsInput">Pinned teams</label>
+        <input id="pinnedTeamsInput" type="text" placeholder="Georgia Bulldogs, Michigan" list="teamSuggestions" />
+        <datalist id="teamSuggestions"></datalist>
+        <button id="pinnedTeamsSave" class="btn-secondary" type="button">Save</button>
+        <div id="pinnedTeamsTags" class="pinned-tags"></div>
+      </div>
       <div id="scheduleList" class="schedule-list">
         <p class="schedule-empty">Loading schedule…</p>
       </div>
@@ -75,21 +102,217 @@
     <div class="ticker-track" id="tickerTrack">Loading scores…</div>
   </footer>
 
+  <div id="toastContainer" class="toast-container" aria-live="polite"></div>
+
+  <!-- Subscriptions Modal -->
   <div id="subscriptionsModal" class="modal-backdrop" hidden>
     <section class="subscriptions-modal" role="dialog" aria-modal="true" aria-labelledby="subscriptionsTitle">
       <div class="modal-head">
         <div>
-          <p class="modal-kicker">Remote setup</p>
-          <h2 id="subscriptionsTitle">Select your subscriptions</h2>
+          <p class="modal-kicker">Remote setup &amp; Authentication</p>
+          <h2 id="subscriptionsTitle">Streaming Subscriptions &amp; Login</h2>
         </div>
         <button id="subscriptionsCloseBtn" class="modal-close" type="button" aria-label="Close">&times;</button>
       </div>
-      <p class="modal-copy">GameWall uses these choices to open each network's general live or watch page.</p>
+      <p class="modal-copy">
+        Select the services you subscribe to. <strong>GameWall shares a single login profile across all 8 screens:</strong>
+        log in once on Screen 1 and every screen is automatically authenticated!
+      </p>
       <div id="subscriptionsList" class="subscriptions-list"><p>Loading services...</p></div>
       <p id="subscriptionsError" class="modal-error" hidden></p>
+
+      <details class="add-custom-service">
+        <summary>+ Add a custom streaming provider</summary>
+        <div class="add-custom-service-form">
+          <input type="text" id="customServiceName" placeholder="Service Name (e.g. Bally Sports)" />
+          <input type="url" id="customServiceLogin" placeholder="Login Page URL (e.g. https://.../login)" />
+          <input type="url" id="customServiceWatch" placeholder="Live Watch URL (e.g. https://.../live)" />
+          <button type="button" id="addCustomServiceBtn" class="btn-secondary">Add Service</button>
+        </div>
+      </details>
+
       <div class="modal-actions">
         <button id="subscriptionsSkipBtn" class="btn-secondary" type="button">Skip for now</button>
         <button id="subscriptionsSaveBtn" class="btn-primary" type="button">Save subscriptions</button>
+      </div>
+    </section>
+  </div>
+
+  <!-- Custom Visual Layout Editor Modal -->
+  <div id="layoutEditorModal" class="modal-backdrop" hidden>
+    <section class="layout-editor-modal" role="dialog" aria-modal="true" aria-labelledby="layoutEditorTitle">
+      <div class="modal-head">
+        <div>
+          <p class="modal-kicker">Display Geometry</p>
+          <h2 id="layoutEditorTitle">Custom Visual Layout Editor</h2>
+        </div>
+        <button id="layoutEditorCloseBtn" class="modal-close" type="button" aria-label="Close">&times;</button>
+      </div>
+      <p class="modal-copy">
+        Drag and resize screens freely on the 16:9 canvas to build any custom grid, Picture-in-Picture (PiP), or asymmetric layout.
+      </p>
+
+      <div class="editor-toolbar">
+        <div class="preset-buttons" id="editorPresetButtons">
+          <span class="toolbar-label">Presets:</span>
+          <button type="button" class="btn-preset" data-preset="1">1-Up</button>
+          <button type="button" class="btn-preset" data-preset="2">2-Up</button>
+          <button type="button" class="btn-preset" data-preset="4">4-Up</button>
+          <button type="button" class="btn-preset" data-preset="6">6-Up</button>
+          <button type="button" class="btn-preset" data-preset="8">8-Up</button>
+          <button type="button" class="btn-preset" data-preset="featured">Featured 1+4</button>
+          <button type="button" class="btn-preset" data-preset="pip">PiP Corner</button>
+          <button type="button" class="btn-preset" data-preset="split3">3-Split</button>
+        </div>
+        <div class="editor-tools">
+          <button id="addEditorSlotBtn" class="btn-secondary" type="button">+ Add Screen</button>
+          <button id="clearEditorSlotsBtn" class="btn-secondary" type="button">Reset</button>
+          <label class="snap-toggle"><input type="checkbox" id="snapGridToggle" checked /> Snap to grid</label>
+        </div>
+      </div>
+
+      <!-- 16:9 Minimap Canvas -->
+      <div class="minimap-container">
+        <div class="minimap-bezel" id="minimapBezel">
+          <div class="minimap-screen" id="minimapScreen">
+            <!-- Screen boxes injected and manipulated by app.js -->
+          </div>
+        </div>
+      </div>
+
+      <div class="custom-layout-save-bar">
+        <label for="customLayoutNameInput">Preset name:</label>
+        <input type="text" id="customLayoutNameInput" placeholder="e.g. UFC Fight Night + 2 Football" />
+        <button id="saveCustomPresetBtn" class="btn-secondary" type="button">Save Preset</button>
+        <select id="customPresetSelect" aria-label="Saved Custom Layouts">
+          <option value="">Saved Presets...</option>
+        </select>
+        <button id="loadCustomPresetBtn" class="btn-secondary" type="button" disabled>Load</button>
+        <button id="deleteCustomPresetBtn" class="btn-danger" type="button" disabled>Delete</button>
+      </div>
+
+      <div class="modal-actions">
+        <button id="layoutEditorCancelBtn" class="btn-secondary" type="button">Cancel</button>
+        <button id="applyLayoutToWallBtn" class="btn-primary" type="button">Apply to Wall</button>
+      </div>
+    </section>
+  </div>
+
+  <!-- Game Day Scheduling System (Day Planner) Modal -->
+  <div id="dayPlannerModal" class="modal-backdrop" hidden>
+    <section class="day-planner-modal" role="dialog" aria-modal="true" aria-labelledby="dayPlannerTitle">
+      <div class="modal-head">
+        <div>
+          <p class="modal-kicker">Hands-Free Automation</p>
+          <h2 id="dayPlannerTitle">Game Day Scheduling System</h2>
+        </div>
+        <button id="dayPlannerCloseBtn" class="modal-close" type="button" aria-label="Close">&times;</button>
+      </div>
+      <p class="modal-copy">
+        Plan out your full day of sports content in advance. GameWall automatically switches visual layouts, populates priority teams, and auto-switches screens as games finish so you never have to touch a controller.
+      </p>
+
+      <div class="planner-controls-card">
+        <div class="planner-master-switch">
+          <label class="planner-toggle-label">
+            <input type="checkbox" id="plannerMasterToggle" />
+            <span class="planner-toggle-slider"></span>
+            <span class="planner-toggle-text">Enable Day Planner Auto-Pilot</span>
+          </label>
+          <span id="plannerActiveStatus" class="planner-status-badge planner-status-badge--off">Auto-Pilot Inactive</span>
+        </div>
+
+        <div class="planner-policies">
+          <label class="policy-item" title="When any visible game reaches Final, immediately find the next best game for that screen">
+            <input type="checkbox" id="plannerPolicyAutoSwitch" checked /> Auto-switch games once done (Final)
+          </label>
+          <label class="policy-item" title="Hold scheduled block changes if a game on screen is in overtime or within 8 points in the 4th quarter">
+            <input type="checkbox" id="plannerPolicyOtDelay" checked /> Overtime &amp; close game protection
+          </label>
+          <label class="policy-item" title="Never close or replace a game featuring one of your pinned favorite teams">
+            <input type="checkbox" id="plannerPolicyProtectPinned" checked /> Protect pinned favorite teams
+          </label>
+          <label class="policy-item" title="Automatically unmute the most competitive live game on the wall">
+            <input type="checkbox" id="plannerPolicyAudioFocus" /> Auto-focus audio on closest 4th quarter game
+          </label>
+        </div>
+
+        <div class="planner-policy-grid">
+          <label class="policy-select-label">
+            <span>Overtime / Delay Policy:</span>
+            <select id="plannerOtPolicy">
+              <option value="wait" selected>Wait for game completion</option>
+              <option value="hardCutover">Hard cutover on scheduled time</option>
+              <option value="graceOverflow">Grace overflow (hold previous in PiP)</option>
+            </select>
+          </label>
+          <label class="policy-select-label">
+            <span>Max Overtime Wait:</span>
+            <select id="plannerOtGraceMinutes">
+              <option value="10">10 minutes</option>
+              <option value="20" selected>20 minutes</option>
+              <option value="30">30 minutes</option>
+              <option value="45">45 minutes</option>
+            </select>
+          </label>
+          <label class="policy-select-label">
+            <span>Manual Override Precedence:</span>
+            <select id="plannerManualOverridePrecedence">
+              <option value="keepUntilNextBlock" selected>Keep until next scheduled block</option>
+              <option value="snapBack">Snap back on next scheduler tick</option>
+            </select>
+          </label>
+          <label class="policy-select-label">
+            <span>Missing / Postponed Fallback:</span>
+            <select id="plannerMissingGameFallback">
+              <option value="autoSubstitute" selected>Auto-substitute next best game</option>
+              <option value="placeholder">Show starting soon placeholder</option>
+              <option value="leaveLast">Leave previous stream running</option>
+            </select>
+          </label>
+        </div>
+
+        <div class="planner-auto-tools">
+          <button id="plannerGenerateTodayBtn" class="btn-secondary" type="button" title="Scan today's schedule and create time blocks automatically">⚡ Auto-Generate Today's Plan</button>
+          <button id="plannerClearPlanBtn" class="btn-secondary" type="button">Clear Plan</button>
+        </div>
+      </div>
+
+      <div class="planner-timeline">
+        <div class="timeline-header">
+          <h3>Scheduled Time Blocks</h3>
+          <button id="addPlannerBlockBtn" class="btn-secondary" type="button">+ Add Time Block</button>
+        </div>
+        <div id="plannerBlocksList" class="planner-blocks-list">
+          <!-- Dynamic blocks injected by JS -->
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button id="dayPlannerSaveCloseBtn" class="btn-primary" type="button">Save &amp; Activate Day Plan</button>
+      </div>
+    </section>
+  </div>
+
+  <!-- Action History & Undo Drawer Modal -->
+  <div id="historyModal" class="modal-backdrop" hidden>
+    <section class="history-modal" role="dialog" aria-modal="true" aria-labelledby="historyTitle">
+      <div class="modal-head">
+        <div>
+          <p class="modal-kicker">Activity &amp; Rollback</p>
+          <h2 id="historyTitle">Action History &amp; Undo</h2>
+        </div>
+        <button id="historyCloseBtn" class="modal-close" type="button" aria-label="Close">&times;</button>
+      </div>
+      <p class="modal-copy">
+        Every screen assignment, layout change, auto-switch, and day planner transition is recorded below. Click <strong>Undo</strong> to roll back any recent change.
+      </p>
+      <div class="history-actions-bar">
+        <button id="undoLatestBtn" class="btn-primary" type="button" disabled>&#x21BA; Undo Last Action</button>
+        <button id="clearHistoryBtn" class="btn-secondary" type="button">Clear History</button>
+      </div>
+      <div id="historyList" class="history-list">
+        <p class="schedule-empty">No recorded actions yet.</p>
       </div>
     </section>
   </div>

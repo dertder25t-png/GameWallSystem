@@ -19,10 +19,25 @@ public sealed class CommandServer
 {
     private readonly int _port;
     private TcpListener? _listener;
-    private readonly List<WebSocket> _clients = new();
+    private sealed class ConnectedClient
+    {
+        public required WebSocket Socket { get; init; }
+        public string Name { get; set; } = "Unnamed remote";
+    }
+
+    private readonly List<ConnectedClient> _clients = new();
     private readonly object _clientsLock = new();
 
     public event Action<SlotCommand>? CommandReceived;
+    public event Func<Task>? ClientJoined;
+
+    public string[] GetClientNames()
+    {
+        lock (_clientsLock)
+        {
+            return _clients.Select(c => c.Name).ToArray();
+        }
+    }
 
     public CommandServer(int port)
     {
@@ -61,7 +76,7 @@ public sealed class CommandServer
 
     private async Task HandleClientAsync(TcpClient client)
     {
-        using var _ = client;
+        using var clientLifetime = client;
         client.NoDelay = true;
         var stream = client.GetStream();
 
@@ -103,7 +118,10 @@ public sealed class CommandServer
         var socket = WebSocket.CreateFromStream(stream, isServer: true, subProtocol: null,
             keepAliveInterval: TimeSpan.FromSeconds(30));
 
-        lock (_clientsLock) _clients.Add(socket);
+        var connectedClient = new ConnectedClient { Socket = socket };
+        lock (_clientsLock) _clients.Add(connectedClient);
+        _ = BroadcastClientsAsync();
+        _ = ClientJoined?.Invoke();
 
         var buffer = new byte[8192];
         try
@@ -129,7 +147,15 @@ public sealed class CommandServer
                 {
                     var command = JsonSerializer.Deserialize<SlotCommand>(json,
                         new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-                    if (command is not null)
+                    if (command?.Action == "hello")
+                    {
+                        connectedClient.Name = string.IsNullOrWhiteSpace(command.Name)
+                            ? "Unnamed remote"
+                            : command.Name.Trim();
+                        _ = BroadcastClientsAsync();
+                        _ = ClientJoined?.Invoke();
+                    }
+                    else if (command is not null)
                         CommandReceived?.Invoke(command);
                 }
                 catch (JsonException)
@@ -144,8 +170,10 @@ public sealed class CommandServer
         }
         finally
         {
-            lock (_clientsLock) _clients.Remove(socket);
+            lock (_clientsLock) _clients.Remove(connectedClient);
             socket.Dispose();
+            _ = BroadcastClientsAsync();
+            _ = ClientJoined?.Invoke();
         }
     }
 
@@ -159,7 +187,7 @@ public sealed class CommandServer
         var bytes = Encoding.UTF8.GetBytes(json);
 
         List<WebSocket> snapshot;
-        lock (_clientsLock) snapshot = new List<WebSocket>(_clients);
+        lock (_clientsLock) snapshot = _clients.Select(client => client.Socket).ToList();
 
         foreach (var socket in snapshot)
         {
@@ -173,6 +201,13 @@ public sealed class CommandServer
                 // that client is gone; it'll be cleaned up by its own receive loop
             }
         }
+    }
+
+    private Task BroadcastClientsAsync()
+    {
+        string[] names;
+        lock (_clientsLock) names = _clients.Select(client => client.Name).ToArray();
+        return BroadcastAsync(new { Type = "clients", Names = names });
     }
 
     private static async Task<string?> ReadHttpLineAsync(NetworkStream stream)

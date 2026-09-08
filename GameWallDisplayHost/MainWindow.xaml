@@ -9,9 +9,9 @@
         ResizeMode="CanResize">
 
     <Grid>
-        <!-- The 8 slots live in this grid. Row/Col/Span are set in code
-             per the active layout (see Layouts.cs / MainWindow.xaml.cs). -->
-        <Grid x:Name="SlotGrid" Margin="0">
+        <!-- The 8 slots live in this canvas. Positions and dimensions are dynamically
+             set in code (fractional coordinates) per the active preset or custom layout. -->
+        <Canvas x:Name="SlotCanvas" Margin="0" ClipToBounds="True">
             <Border x:Name="Border0" BorderBrush="#222" BorderThickness="1">
                 <wv2:WebView2 x:Name="Slot0" />
             </Border>
@@ -36,7 +36,7 @@
             <Border x:Name="Border7" BorderBrush="#222" BorderThickness="1">
                 <wv2:WebView2 x:Name="Slot7" />
             </Border>
-        </Grid>
+        </Canvas>
 
         <!-- Small status overlay: shows connect address, fades on its own timer if you add one later. -->
         <Border x:Name="StatusOverlay"

@@ -36,6 +36,25 @@ public partial class MainWindow : Window
     private CommandServer? _server;
     private LayoutDefinition _currentLayout = Layouts.FourUp;
     private int _selectedMonitorIndex;
+    private readonly string?[] _lastUrls = new string?[8];
+    private readonly System.Windows.Threading.DispatcherTimer _watchdogTimer = new();
+    private readonly int[] _stallFailures = new int[8];
+    private readonly string[] _slotHealth = new string[8] { "ok", "ok", "ok", "ok", "ok", "ok", "ok", "ok" };
+
+    private readonly WallState _wallState = new()
+    {
+        Revision = 1,
+        Layout = "4",
+        Slots = Enumerable.Range(0, 8).Select(i => new SlotState
+        {
+            Index = i,
+            Health = "ok",
+            Muted = false,
+            Volume = 1.0
+        }).ToArray()
+    };
+    private bool _isCustomLayout;
+    private CustomSlotRect[]? _currentCustomRects;
 
     private const uint SwpNoActivate = 0x0010;
     private const uint SwpNoZOrder = 0x0004;
@@ -66,13 +85,20 @@ public partial class MainWindow : Window
         {
             _selectedMonitorIndex = GetPrimaryMonitorIndex();
             await InitializeWebViewsAsync();
+            SlotCanvas.SizeChanged += (_, _) => RenderCanvasSlots();
             ApplyLayout(_currentLayout);
+
+            _watchdogTimer.Interval = TimeSpan.FromSeconds(2.5);
+            _watchdogTimer.Tick += WatchdogTimer_Tick;
+            _watchdogTimer.Start();
 
             _server = new CommandServer(ListenPort);
             _server.CommandReceived += OnCommandReceived;
+            _server.ClientJoined += () => Dispatcher.InvokeAsync(BroadcastWallStateAsync).Task;
             _server.Start();
 
             StatusText.Text = $"Listening: {GetLocalIPv4()}:{ListenPort}";
+            _ = BroadcastWallStateAsync();
         }
         catch (Exception ex)
         {
@@ -95,43 +121,144 @@ public partial class MainWindow : Window
 
         _environment = await CoreWebView2Environment.CreateAsync(userDataFolder: userDataFolder);
 
-        foreach (var slot in _slots)
+        for (var index = 0; index < _slots.Length; index++)
         {
+            var slot = _slots[index];
             await slot.EnsureCoreWebView2Async(_environment);
             slot.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
             slot.CoreWebView2.Settings.AreDevToolsEnabled = false;
+            var slotIndex = index;
+            slot.CoreWebView2.ProcessFailed += (_, _) => Dispatcher.Invoke(() => RecoverSlot(slotIndex));
+            slot.CoreWebView2.NavigationCompleted += (_, _) => _ = BroadcastHealthAsync(slotIndex, "ok");
             slot.CoreWebView2.Navigate("about:blank");
         }
     }
 
-    /// <summary>Arranges the grid rows/cols and per-slot placement for the given layout.</summary>
-    private void ApplyLayout(LayoutDefinition layout)
-    {
-        _currentLayout = layout;
-        SlotGrid.RowDefinitions.Clear();
-        SlotGrid.ColumnDefinitions.Clear();
+    private FractionalRect[] _currentFractionalRects = Layouts.FourUp.FractionalPlacements;
 
-        for (int r = 0; r < layout.Rows; r++)
-            SlotGrid.RowDefinitions.Add(new RowDefinition());
-        for (int c = 0; c < layout.Cols; c++)
-            SlotGrid.ColumnDefinitions.Add(new ColumnDefinition());
+    private void RenderCanvasSlots()
+    {
+        var w = SlotCanvas.ActualWidth;
+        var h = SlotCanvas.ActualHeight;
+        if (w <= 0 || h <= 0) return;
 
         for (int i = 0; i < _borders.Length; i++)
         {
-            if (i < layout.VisibleCount)
+            if (i < _currentFractionalRects.Length)
             {
-                var p = layout.Placements[i];
+                var r = _currentFractionalRects[i];
                 _borders[i].Visibility = Visibility.Visible;
-                Grid.SetRow(_borders[i], p.Row);
-                Grid.SetColumn(_borders[i], p.Col);
-                Grid.SetRowSpan(_borders[i], p.RowSpan);
-                Grid.SetColumnSpan(_borders[i], p.ColSpan);
+                Canvas.SetLeft(_borders[i], Math.Round(r.X * w));
+                Canvas.SetTop(_borders[i], Math.Round(r.Y * h));
+                _borders[i].Width = Math.Max(0, Math.Round(r.Width * w));
+                _borders[i].Height = Math.Max(0, Math.Round(r.Height * h));
+                System.Windows.Controls.Panel.SetZIndex(_borders[i], i);
             }
             else
             {
                 _borders[i].Visibility = Visibility.Collapsed;
             }
         }
+    }
+
+    private static string GetLayoutName(LayoutDefinition layout)
+    {
+        if (layout == Layouts.OneUp) return "1";
+        if (layout == Layouts.TwoUp) return "2";
+        if (layout == Layouts.FourUp) return "4";
+        if (layout == Layouts.SixUp) return "6";
+        if (layout == Layouts.EightUp) return "8";
+        if (layout == Layouts.FeaturedPlusFour) return "featured";
+        return "4";
+    }
+
+    private Task BroadcastWallStateAsync()
+    {
+        if (_server is null) return Task.CompletedTask;
+        _wallState.ActiveMonitor = _selectedMonitorIndex;
+        _wallState.Clients = _server.GetClientNames();
+        _wallState.Layout = _isCustomLayout ? "custom" : GetLayoutName(_currentLayout);
+        _wallState.CustomRects = _isCustomLayout ? _currentCustomRects : null;
+        return _server.BroadcastAsync(_wallState);
+    }
+
+    /// <summary>Arranges the slots per the fractional coordinates of the given preset layout.</summary>
+    private void ApplyLayout(LayoutDefinition layout, string? layoutName = null)
+    {
+        _isCustomLayout = false;
+        _currentCustomRects = null;
+        _currentLayout = layout;
+        _currentFractionalRects = layout.FractionalPlacements;
+        _wallState.Layout = layoutName ?? GetLayoutName(layout);
+        _wallState.CustomRects = null;
+        RenderCanvasSlots();
+    }
+
+    /// <summary>Arranges the slots per arbitrary normalized fractional coordinates (custom layout).</summary>
+    private void ApplyCustomLayout(CustomSlotRect[] customRects)
+    {
+        _isCustomLayout = true;
+        _currentCustomRects = customRects;
+        var list = new List<FractionalRect>();
+        for (int i = 0; i < Math.Min(customRects.Length, 8); i++)
+        {
+            var cr = customRects[i];
+            list.Add(new FractionalRect(cr.X, cr.Y, cr.Width, cr.Height));
+        }
+        _currentFractionalRects = list.ToArray();
+        _wallState.Layout = "custom";
+        _wallState.CustomRects = customRects;
+        RenderCanvasSlots();
+    }
+
+    private void RestoreWallStateSnapshot(WallState snapshot)
+    {
+        if (snapshot.Layout.Equals("custom", StringComparison.OrdinalIgnoreCase) && snapshot.CustomRects is { Length: > 0 })
+        {
+            ApplyCustomLayout(snapshot.CustomRects);
+        }
+        else
+        {
+            ApplyLayout(Layouts.ByName(snapshot.Layout), snapshot.Layout);
+        }
+
+        if (snapshot.Slots is not null)
+        {
+            for (int i = 0; i < Math.Min(_slots.Length, snapshot.Slots.Length); i++)
+            {
+                var target = snapshot.Slots[i];
+                var current = _wallState.Slots[i];
+
+                current.Label = target.Label;
+                current.Network = target.Network;
+                current.GameId = target.GameId;
+                current.LastUrl = target.LastUrl;
+                current.LastLabel = target.LastLabel;
+                current.LastNetwork = target.LastNetwork;
+                current.LastGameJson = target.LastGameJson;
+                current.Muted = target.Muted;
+                current.Volume = target.Volume;
+
+                SetMute(i, target.Muted);
+                _ = SetVolumeAsync(i, target.Volume);
+
+                if (!string.IsNullOrWhiteSpace(target.Url))
+                {
+                    _lastUrls[i] = target.Url;
+                    current.Url = target.Url;
+                    _slots[i].CoreWebView2?.Navigate(target.Url);
+                }
+                else
+                {
+                    _lastUrls[i] = null;
+                    current.Url = null;
+                    _slots[i].CoreWebView2?.Navigate("about:blank");
+                }
+            }
+        }
+
+        _wallState.Revision++;
+        _ = BroadcastWallStateAsync();
     }
 
     private void OnCommandReceived(SlotCommand cmd)
@@ -143,31 +270,146 @@ public partial class MainWindow : Window
             {
                 case "navigate":
                     if (cmd.Slot is int ns && ns is >= 0 and < 8 && cmd.Url is not null)
+                    {
+                        _lastUrls[ns] = cmd.Url;
                         _slots[ns].CoreWebView2?.Navigate(cmd.Url);
+
+                        var s = _wallState.Slots[ns];
+                        s.Url = cmd.Url;
+                        s.Label = cmd.Label ?? s.Label ?? cmd.Url;
+                        s.Network = cmd.Network ?? s.Network;
+                        s.GameId = cmd.GameId ?? s.GameId;
+                        s.LastUrl = cmd.Url;
+                        s.LastLabel = s.Label;
+                        s.LastNetwork = s.Network;
+                        if (cmd.LastGameJson is not null) s.LastGameJson = cmd.LastGameJson;
+
+                        _wallState.Revision++;
+                        _ = BroadcastWallStateAsync();
+                    }
                     break;
 
                 case "mute":
                     if (cmd.Slot is int ms && ms is >= 0 and < 8 && cmd.Muted is bool muted)
+                    {
                         SetMute(ms, muted);
+                        _wallState.Slots[ms].Muted = muted;
+                        _wallState.Revision++;
+                        _ = BroadcastWallStateAsync();
+                    }
                     break;
 
                 case "volume":
                     if (cmd.Slot is int vs && vs is >= 0 and < 8 && cmd.Volume is double vol)
-                        _ = SetVolumeAsync(vs, Math.Clamp(vol, 0.0, 1.0));
+                    {
+                        var clamped = Math.Clamp(vol, 0.0, 1.0);
+                        _ = SetVolumeAsync(vs, clamped);
+                        _wallState.Slots[vs].Volume = clamped;
+                        _wallState.Revision++;
+                        _ = BroadcastWallStateAsync();
+                    }
                     break;
 
                 case "close":
                     if (cmd.Slot is int cs && cs is >= 0 and < 8)
+                    {
+                        _lastUrls[cs] = null;
+                        _stallFailures[cs] = 0;
                         _slots[cs].CoreWebView2?.Navigate("about:blank");
+
+                        var s = _wallState.Slots[cs];
+                        s.Url = null;
+                        s.Label = null;
+                        s.Network = null;
+                        s.Health = "ok";
+                        _slotHealth[cs] = "ok";
+
+                        _wallState.Revision++;
+                        _ = BroadcastHealthAsync(cs, "ok");
+                        _ = BroadcastWallStateAsync();
+                    }
+                    break;
+
+                case "clear":
+                    if (cmd.Slot is int clrS && clrS is >= 0 and < 8)
+                    {
+                        _lastUrls[clrS] = null;
+                        _stallFailures[clrS] = 0;
+                        _slots[clrS].CoreWebView2?.Navigate("about:blank");
+
+                        var s = _wallState.Slots[clrS];
+                        s.Url = null;
+                        s.Label = null;
+                        s.Network = null;
+                        s.GameId = null;
+                        s.LastUrl = null;
+                        s.LastLabel = null;
+                        s.LastNetwork = null;
+                        s.LastGameJson = null;
+                        s.Health = "ok";
+                        _slotHealth[clrS] = "ok";
+
+                        _wallState.Revision++;
+                        _ = BroadcastHealthAsync(clrS, "ok");
+                        _ = BroadcastWallStateAsync();
+                    }
                     break;
 
                 case "closeAll":
-                    foreach (var s in _slots) s.CoreWebView2?.Navigate("about:blank");
+                    for (var s = 0; s < _slots.Length; s++)
+                    {
+                        _lastUrls[s] = null;
+                        _stallFailures[s] = 0;
+                        _slots[s].CoreWebView2?.Navigate("about:blank");
+                        _slotHealth[s] = "ok";
+
+                        var slotState = _wallState.Slots[s];
+                        slotState.Url = null;
+                        slotState.Label = null;
+                        slotState.Network = null;
+                        slotState.Health = "ok";
+                    }
+                    _wallState.Revision++;
+                    _ = BroadcastWallStateAsync();
                     break;
 
                 case "layout":
                     if (cmd.Layout is not null)
-                        ApplyLayout(Layouts.ByName(cmd.Layout));
+                    {
+                        if (cmd.Layout.Equals("custom", StringComparison.OrdinalIgnoreCase) && cmd.Rects is { Length: > 0 })
+                            ApplyCustomLayout(cmd.Rects);
+                        else
+                            ApplyLayout(Layouts.ByName(cmd.Layout), cmd.Layout);
+
+                        _wallState.Revision++;
+                        _ = BroadcastWallStateAsync();
+                    }
+                    break;
+
+                case "restoreSnapshot":
+                case "applyWallState":
+                    if (cmd.Snapshot is not null)
+                    {
+                        RestoreWallStateSnapshot(cmd.Snapshot);
+                    }
+                    break;
+
+                case "syncSlot":
+                    if (cmd.Slot is int syncSlot && syncSlot is >= 0 and < 8)
+                    {
+                        var s = _wallState.Slots[syncSlot];
+                        if (cmd.Label is not null) s.Label = cmd.Label;
+                        if (cmd.Network is not null) s.Network = cmd.Network;
+                        if (cmd.GameId is not null) s.GameId = cmd.GameId;
+                        if (cmd.Url is not null) s.Url = cmd.Url;
+                        if (cmd.LastGameJson is not null) s.LastGameJson = cmd.LastGameJson;
+                        _wallState.Revision++;
+                        _ = BroadcastWallStateAsync();
+                    }
+                    break;
+
+                case "wallState":
+                    _ = BroadcastWallStateAsync();
                     break;
 
                 case "test":
@@ -209,6 +451,7 @@ public partial class MainWindow : Window
         WindowState = WindowState.Maximized;
         _selectedMonitorIndex = monitorIndex;
         _ = SendDisplayStatusAsync();
+        _ = BroadcastWallStateAsync();
     }
 
     private async Task SendDisplayStatusAsync()
@@ -232,6 +475,82 @@ public partial class MainWindow : Window
                 Height = screen.Bounds.Height,
             }).ToArray(),
         });
+    }
+
+    private void RecoverSlot(int slotIndex)
+    {
+        var core = _slots[slotIndex].CoreWebView2;
+        if (core is null) return;
+        _stallFailures[slotIndex] = 0;
+        _ = BroadcastHealthAsync(slotIndex, "recovered");
+        if (!string.IsNullOrWhiteSpace(_lastUrls[slotIndex]))
+            core.Navigate(_lastUrls[slotIndex]!);
+        else
+            core.Reload();
+    }
+
+    private Task BroadcastHealthAsync(int slotIndex, string status)
+    {
+        _slotHealth[slotIndex] = status;
+        if (slotIndex >= 0 && slotIndex < _wallState.Slots.Length)
+        {
+            _wallState.Slots[slotIndex].Health = status;
+        }
+        _ = _server?.BroadcastAsync(new SlotHealth { Slot = slotIndex, Status = status });
+        return BroadcastWallStateAsync();
+    }
+
+    private async void WatchdogTimer_Tick(object? sender, EventArgs e)
+    {
+        for (var i = 0; i < _slots.Length; i++)
+        {
+            var url = _lastUrls[i];
+            if (string.IsNullOrWhiteSpace(url) || url == "about:blank")
+            {
+                _stallFailures[i] = 0;
+                continue;
+            }
+
+            var core = _slots[i].CoreWebView2;
+            if (core is null) continue;
+
+            bool checkOk = false;
+            try
+            {
+                var evalTask = core.ExecuteScriptAsync("document.readyState");
+                var completed = await Task.WhenAny(evalTask, Task.Delay(1500));
+                if (completed == evalTask && evalTask.Result is not null)
+                {
+                    checkOk = true;
+                }
+            }
+            catch
+            {
+                checkOk = false;
+            }
+
+            if (!checkOk)
+            {
+                _stallFailures[i]++;
+                if (_stallFailures[i] >= 5)
+                {
+                    _stallFailures[i] = 0;
+                    RecoverSlot(i);
+                }
+                else if (_stallFailures[i] >= 3 && _slotHealth[i] != "stalled")
+                {
+                    _ = BroadcastHealthAsync(i, "stalled");
+                }
+            }
+            else
+            {
+                if (_stallFailures[i] > 0 || _slotHealth[i] != "ok")
+                {
+                    _stallFailures[i] = 0;
+                    _ = BroadcastHealthAsync(i, "ok");
+                }
+            }
+        }
     }
 
     private static int GetPrimaryMonitorIndex()
@@ -298,6 +617,7 @@ public partial class MainWindow : Window
 
     protected override void OnClosed(EventArgs e)
     {
+        _watchdogTimer.Stop();
         _server?.Stop();
         base.OnClosed(e);
     }

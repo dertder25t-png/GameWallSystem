@@ -1,0 +1,475 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GameWall Stats Panel</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&family=Outfit:wght@500;700;800;900&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #090c10;
+      --card-bg: rgba(22, 27, 34, 0.85);
+      --card-border: rgba(255, 255, 255, 0.1);
+      --text: #f0f6fc;
+      --text-muted: #8b949e;
+      --accent: #58a6ff;
+      --accent-glow: rgba(88, 166, 255, 0.25);
+      --home-color: #f78166;
+      --away-color: #79c0ff;
+      --green: #3fb950;
+      --gold: #d29922;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg);
+      color: var(--text);
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      min-height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      padding: 1.5rem;
+      background: radial-gradient(circle at 50% 10%, rgba(30, 45, 65, 0.5) 0%, #090c10 80%);
+      user-select: none;
+    }
+
+    .panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 0.75rem;
+      border-bottom: 1px solid var(--card-border);
+    }
+
+    .panel-title {
+      font-family: 'Outfit', sans-serif;
+      font-weight: 800;
+      font-size: 1.1rem;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--accent);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .panel-pulse {
+      width: 10px;
+      height: 10px;
+      background: #e5534b;
+      border-radius: 50%;
+      box-shadow: 0 0 10px #e5534b;
+      animation: pulse 1.5s infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.85); }
+    }
+
+    .status-badge {
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid var(--card-border);
+      padding: 0.25rem 0.75rem;
+      border-radius: 9999px;
+      font-size: 0.85rem;
+      font-weight: 700;
+      letter-spacing: 0.05em;
+    }
+
+    .status-badge.live {
+      background: rgba(229, 83, 75, 0.2);
+      border-color: rgba(229, 83, 75, 0.5);
+      color: #ff7b72;
+    }
+
+    /* Matchup Board */
+    .matchup-grid {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+      margin: 1rem 0;
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 1.25rem 1.75rem;
+      box-shadow: 0 12px 30px rgba(0, 0, 0, 0.5);
+      backdrop-filter: blur(12px);
+    }
+
+    .team-block {
+      display: flex;
+      align-items: center;
+      gap: 1.25rem;
+    }
+
+    .team-block.home {
+      flex-direction: row-reverse;
+      text-align: right;
+    }
+
+    .team-logo {
+      width: 72px;
+      height: 72px;
+      object-fit: contain;
+      filter: drop-shadow(0 4px 10px rgba(0,0,0,0.6));
+    }
+
+    .team-info {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .team-name {
+      font-family: 'Outfit', sans-serif;
+      font-size: 1.85rem;
+      font-weight: 800;
+      letter-spacing: -0.01em;
+      line-height: 1.1;
+    }
+
+    .team-record {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin-top: 0.2rem;
+    }
+
+    .score-container {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    .team-score {
+      font-family: 'Outfit', sans-serif;
+      font-size: 3.4rem;
+      font-weight: 900;
+      letter-spacing: -0.03em;
+      min-width: 60px;
+      text-align: center;
+    }
+
+    .vs-separator {
+      font-family: 'Outfit', sans-serif;
+      font-size: 1.2rem;
+      font-weight: 700;
+      color: var(--text-muted);
+      padding: 0 1rem;
+      text-align: center;
+    }
+
+    /* Situation bar */
+    .situation-banner {
+      background: linear-gradient(90deg, rgba(88, 166, 255, 0.15), rgba(121, 192, 255, 0.05));
+      border-left: 4px solid var(--accent);
+      padding: 0.6rem 1rem;
+      border-radius: 8px;
+      margin-bottom: 1rem;
+      font-size: 0.95rem;
+      font-weight: 600;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .situation-text {
+      color: #c9d1d9;
+    }
+
+    .possession-dot {
+      color: var(--gold);
+      font-weight: 800;
+      margin-right: 0.35rem;
+    }
+
+    /* Win Probability Section */
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 1.15rem 1.25rem;
+      box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+      margin-bottom: 0.85rem;
+    }
+
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 0.75rem;
+    }
+
+    .card-label {
+      font-size: 0.8rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--text-muted);
+    }
+
+    .prob-values {
+      display: flex;
+      justify-content: space-between;
+      font-family: 'Outfit', sans-serif;
+      font-size: 1.25rem;
+      font-weight: 800;
+      margin-bottom: 0.4rem;
+    }
+
+    .prob-away {
+      color: var(--away-color);
+    }
+
+    .prob-home {
+      color: var(--home-color);
+    }
+
+    .prob-bar-container {
+      width: 100%;
+      height: 18px;
+      background: rgba(255, 255, 255, 0.08);
+      border-radius: 9999px;
+      overflow: hidden;
+      display: flex;
+      box-shadow: inset 0 2px 4px rgba(0,0,0,0.5);
+    }
+
+    .prob-bar-away {
+      height: 100%;
+      background: linear-gradient(90deg, #1f6feb, #58a6ff);
+      transition: width 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .prob-bar-home {
+      height: 100%;
+      background: linear-gradient(90deg, #ff7b72, #da3633);
+      transition: width 0.8s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    /* Info Grid (Weather, Venue, Leaders) */
+    .details-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.85rem;
+    }
+
+    .meta-item {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .meta-icon {
+      font-size: 1.6rem;
+    }
+
+    .meta-text {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .meta-title {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .meta-value {
+      font-size: 1rem;
+      font-weight: 700;
+      color: #e6edf3;
+    }
+
+    /* Leaders section */
+    .leaders-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .leader-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.9rem;
+      padding: 0.25rem 0;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+
+    .leader-row:last-child {
+      border-bottom: none;
+    }
+
+    .leader-cat {
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--accent);
+      width: 45px;
+    }
+
+    .leader-name {
+      flex: 1;
+      font-weight: 600;
+    }
+
+    .leader-stat {
+      font-family: 'Outfit', sans-serif;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    /* Odds pill */
+    .odds-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      background: rgba(210, 153, 34, 0.15);
+      border: 1px solid rgba(210, 153, 34, 0.4);
+      color: #f2cc60;
+      padding: 0.25rem 0.6rem;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      font-weight: 700;
+    }
+
+    /* Footer */
+    .panel-footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      padding-top: 0.5rem;
+      border-top: 1px solid var(--card-border);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Top bar -->
+  <header class="panel-header">
+    <div class="panel-title">
+      <div class="panel-pulse" id="liveDot"></div>
+      <span>GameWall • Live Match Data</span>
+    </div>
+    <div class="status-badge" id="statusBadge">Connecting...</div>
+  </header>
+
+  <!-- Matchup scoreboard -->
+  <section class="matchup-grid" id="matchupGrid">
+    <div class="team-block away">
+      <img id="awayLogo" class="team-logo" src="" alt="" />
+      <div class="team-info">
+        <div class="team-name" id="awayName">Away</div>
+        <div class="team-record" id="awayRecord"></div>
+      </div>
+      <div class="team-score" id="awayScore">0</div>
+    </div>
+
+    <div class="vs-separator">
+      <div id="gameClock">VS</div>
+      <div id="oddsInfo" class="odds-pill" style="display: none; margin-top: 0.35rem;"></div>
+    </div>
+
+    <div class="team-block home">
+      <img id="homeLogo" class="team-logo" src="" alt="" />
+      <div class="team-info">
+        <div class="team-name" id="homeName">Home</div>
+        <div class="team-record" id="homeRecord"></div>
+      </div>
+      <div class="team-score" id="homeScore">0</div>
+    </div>
+  </section>
+
+  <!-- Live situation text if live -->
+  <div class="situation-banner" id="situationBanner" style="display: none;">
+    <div class="situation-text">
+      <span class="possession-dot">&#9679;</span>
+      <span id="situationText">1st &amp; 10 at 50</span>
+    </div>
+    <div id="lastPlayText" style="font-size: 0.8rem; color: var(--text-muted);"></div>
+  </div>
+
+  <!-- Win Probability Meter -->
+  <section class="card" id="winProbCard">
+    <div class="card-header">
+      <span class="card-label">Live Win Probability / Predictor</span>
+      <span id="probDelta" style="font-size: 0.75rem; color: var(--text-muted);"></span>
+    </div>
+    <div class="prob-values">
+      <span class="prob-away" id="probAwayVal">50%</span>
+      <span class="prob-home" id="probHomeVal">50%</span>
+    </div>
+    <div class="prob-bar-container">
+      <div class="prob-bar-away" id="probBarAway" style="width: 50%;"></div>
+      <div class="prob-bar-home" id="probBarHome" style="width: 50%;"></div>
+    </div>
+  </section>
+
+  <!-- Dual Cards (Weather & Venue | Leaders) -->
+  <div class="details-grid">
+    <div class="card">
+      <div class="card-header">
+        <span class="card-label">Venue &amp; Weather</span>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 0.75rem;">
+        <div class="meta-item">
+          <span class="meta-icon">&#x1F3DF;&#xFE0F;</span>
+          <div class="meta-text">
+            <span class="meta-title">Venue</span>
+            <span class="meta-value" id="venueName">Stadium</span>
+          </div>
+        </div>
+        <div class="meta-item">
+          <span class="meta-icon" id="weatherIcon">&#x2600;&#xFE0F;</span>
+          <div class="meta-text">
+            <span class="meta-title">Conditions</span>
+            <span class="meta-value" id="weatherDetails">72°F Clear</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header">
+        <span class="card-label">Key Performers</span>
+      </div>
+      <div class="leaders-list" id="leadersList">
+        <div class="leader-row">
+          <span class="leader-cat">PASS</span>
+          <span class="leader-name" id="passLeader">--</span>
+          <span class="leader-stat" id="passStat">--</span>
+        </div>
+        <div class="leader-row">
+          <span class="leader-cat">RUSH</span>
+          <span class="leader-name" id="rushLeader">--</span>
+          <span class="leader-stat" id="rushStat">--</span>
+        </div>
+        <div class="leader-row">
+          <span class="leader-cat">REC</span>
+          <span class="leader-name" id="recLeader">--</span>
+          <span class="leader-stat" id="recStat">--</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Footer status -->
+  <footer class="panel-footer">
+    <span id="networkBroadcast">Broadcast: Live</span>
+    <span id="lastUpdated">Updated just now</span>
+  </footer>
+
+  <script src="panel.js"></script>
+</body>
+</html>

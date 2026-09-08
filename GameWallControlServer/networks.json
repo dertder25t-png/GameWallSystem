@@ -1,16 +1,16 @@
 {
   "services": {
-    "hulu": { "label": "Hulu + Live TV", "defaultUrl": "https://www.hulu.com/live-guide" },
-    "youtubetv": { "label": "YouTube TV", "defaultUrl": "https://tv.youtube.com/live" },
-    "fubo": { "label": "Fubo", "defaultUrl": "https://www.fubo.tv/welcome" },
-    "sling": { "label": "Sling TV", "defaultUrl": "https://watch.sling.com/" },
-    "directvstream": { "label": "DirecTV Stream", "defaultUrl": "https://stream.directv.com/guide" },
-    "peacock": { "label": "Peacock", "defaultUrl": "https://www.peacocktv.com/live-tv" },
-    "paramountplus": { "label": "Paramount+", "defaultUrl": "https://www.paramountplus.com/live-tv/" },
-    "primevideo": { "label": "Amazon Prime Video", "defaultUrl": "https://www.amazon.com/gp/video/storefront" },
-    "espnplus": { "label": "ESPN+", "defaultUrl": "https://www.espn.com/watch/" },
-    "nflplus": { "label": "NFL+", "defaultUrl": "https://www.nfl.com/plus/" },
-    "disneyplus": { "label": "Disney+", "defaultUrl": "https://www.disneyplus.com/" }
+    "hulu": { "label": "Hulu + Live TV", "defaultUrl": "https://www.hulu.com/live-guide", "loginUrl": "https://auth.hulu.com/web/login" },
+    "youtubetv": { "label": "YouTube TV", "defaultUrl": "https://tv.youtube.com/live", "loginUrl": "https://tv.youtube.com/welcome" },
+    "fubo": { "label": "Fubo", "defaultUrl": "https://www.fubo.tv/welcome", "loginUrl": "https://www.fubo.tv/signin" },
+    "sling": { "label": "Sling TV", "defaultUrl": "https://watch.sling.com/", "loginUrl": "https://watch.sling.com/signin" },
+    "directvstream": { "label": "DirecTV Stream", "defaultUrl": "https://stream.directv.com/guide", "loginUrl": "https://stream.directv.com/login" },
+    "peacock": { "label": "Peacock", "defaultUrl": "https://www.peacocktv.com/live-tv", "loginUrl": "https://www.peacocktv.com/signin" },
+    "paramountplus": { "label": "Paramount+", "defaultUrl": "https://www.paramountplus.com/live-tv/", "loginUrl": "https://www.paramountplus.com/account/signin/" },
+    "primevideo": { "label": "Amazon Prime Video", "defaultUrl": "https://www.amazon.com/gp/video/storefront", "loginUrl": "https://www.amazon.com/ap/signin" },
+    "espnplus": { "label": "ESPN+", "defaultUrl": "https://www.espn.com/watch/", "loginUrl": "https://www.espn.com/watch/" },
+    "nflplus": { "label": "NFL+", "defaultUrl": "https://www.nfl.com/plus/", "loginUrl": "https://www.nfl.com/plus/" },
+    "disneyplus": { "label": "Disney+", "defaultUrl": "https://www.disneyplus.com/", "loginUrl": "https://www.disneyplus.com/login" }
   },
   "networks": {
     "ESPN": { "hulu": "https://www.hulu.com/live-guide", "youtubetv": "https://tv.youtube.com/live", "fubo": "https://www.fubo.tv/welcome", "sling": "https://watch.sling.com/", "directvstream": "https://stream.directv.com/guide" },
