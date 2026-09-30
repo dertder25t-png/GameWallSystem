@@ -1,0 +1,35 @@
+{
+  "services": {
+    "hulu": { "label": "Hulu + Live TV", "defaultUrl": "https://www.hulu.com/live-guide", "loginUrl": "https://auth.hulu.com/web/login" },
+    "youtubetv": { "label": "YouTube TV", "defaultUrl": "https://tv.youtube.com/live", "loginUrl": "https://tv.youtube.com/welcome" },
+    "fubo": { "label": "Fubo", "defaultUrl": "https://www.fubo.tv/welcome", "loginUrl": "https://www.fubo.tv/signin" },
+    "sling": { "label": "Sling TV", "defaultUrl": "https://watch.sling.com/", "loginUrl": "https://watch.sling.com/signin" },
+    "directvstream": { "label": "DirecTV Stream", "defaultUrl": "https://stream.directv.com/guide", "loginUrl": "https://stream.directv.com/login" },
+    "peacock": { "label": "Peacock", "defaultUrl": "https://www.peacocktv.com/live-tv", "loginUrl": "https://www.peacocktv.com/signin" },
+    "paramountplus": { "label": "Paramount+", "defaultUrl": "https://www.paramountplus.com/live-tv/", "loginUrl": "https://www.paramountplus.com/account/signin/" },
+    "primevideo": { "label": "Amazon Prime Video", "defaultUrl": "https://www.amazon.com/gp/video/storefront", "loginUrl": "https://www.amazon.com/ap/signin" },
+    "espnplus": { "label": "ESPN+", "defaultUrl": "https://www.espn.com/watch/", "loginUrl": "https://www.espn.com/watch/" },
+    "nflplus": { "label": "NFL+", "defaultUrl": "https://www.nfl.com/plus/", "loginUrl": "https://www.nfl.com/plus/" },
+    "disneyplus": { "label": "Disney+", "defaultUrl": "https://www.disneyplus.com/", "loginUrl": "https://www.disneyplus.com/login" }
+  },
+  "networks": {
+    "ESPN": { "hulu": "https://www.hulu.com/live-guide", "youtubetv": "https://tv.youtube.com/live", "fubo": "https://www.fubo.tv/welcome", "sling": "https://watch.sling.com/", "directvstream": "https://stream.directv.com/guide" },
+    "ESPN2": { "hulu": "https://www.hulu.com/live-guide", "youtubetv": "https://tv.youtube.com/live", "fubo": "https://www.fubo.tv/welcome", "sling": "https://watch.sling.com/" },
+    "ESPNU": { "hulu": "https://www.hulu.com/live-guide", "youtubetv": "https://tv.youtube.com/live" },
+    "SEC Network": { "hulu": "https://www.hulu.com/live-guide", "youtubetv": "https://tv.youtube.com/live", "fubo": "https://www.fubo.tv/welcome" },
+    "ACC Network": { "hulu": "https://www.hulu.com/live-guide", "youtubetv": "https://tv.youtube.com/live" },
+    "Big Ten Network": { "hulu": "https://www.hulu.com/live-guide", "youtubetv": "https://tv.youtube.com/live", "fubo": "https://www.fubo.tv/welcome" },
+    "ABC": { "hulu": "https://www.hulu.com/live-guide", "youtubetv": "https://tv.youtube.com/live", "directvstream": "https://stream.directv.com/guide" },
+    "FOX": { "hulu": "https://www.hulu.com/live-guide", "youtubetv": "https://tv.youtube.com/live", "fubo": "https://www.fubo.tv/welcome" },
+    "FS1": { "hulu": "https://www.hulu.com/live-guide", "youtubetv": "https://tv.youtube.com/live", "fubo": "https://www.fubo.tv/welcome" },
+    "CBS": { "paramountplus": "https://www.paramountplus.com/live-tv/", "youtubetv": "https://tv.youtube.com/live", "fubo": "https://www.fubo.tv/welcome" },
+    "CBS Sports Network": { "paramountplus": "https://www.paramountplus.com/live-tv/" },
+    "NBC": { "peacock": "https://www.peacocktv.com/live-tv", "youtubetv": "https://tv.youtube.com/live" },
+    "NFL Network": { "youtubetv": "https://tv.youtube.com/live", "fubo": "https://www.fubo.tv/welcome", "directvstream": "https://stream.directv.com/guide", "sling": "https://watch.sling.com/" },
+    "Amazon Prime Video": { "primevideo": "https://www.amazon.com/gp/video/storefront" },
+    "Peacock": { "peacock": "https://www.peacocktv.com/live-tv" },
+    "ESPN+": { "espnplus": "https://www.espn.com/watch/" }
+  },
+  "priority": ["hulu", "youtubetv", "fubo", "directvstream", "sling", "peacock", "paramountplus", "primevideo", "nflplus", "espnplus", "disneyplus"],
+  "default": "https://www.espn.com/watch/"
+}

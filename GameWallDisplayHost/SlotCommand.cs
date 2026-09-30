@@ -7,7 +7,7 @@ namespace GameWallDisplayHost;
 /// </summary>
 public sealed class SlotCommand
 {
-    // "navigate" | "mute" | "volume" | "close" | "clear" | "layout" | "test" | "closeAll" | "displays" | "monitor" | "hello" | "wallState" | "restoreSnapshot" | "syncSlot"
+    // "navigate" | "mute" | "volume" | "close" | "clear" | "layout" | "test" | "closeAll" | "displays" | "monitor" | "hello" | "wallState" | "restoreSnapshot" | "syncSlot" | "endSession" | "identify"
     public string Action { get; set; } = "";
 
     // Which slot (0-7) this command targets. Not used for "layout"/"test"/"closeAll".
@@ -36,6 +36,9 @@ public sealed class SlotCommand
 
     // Friendly label sent by a remote on connect.
     public string? Name { get; set; }
+
+    // Set by the cloud relay: the paired phone that sent this command.
+    public string? From { get; set; }
 
     // Optional custom fractional rectangles for layout = "custom"
     public CustomSlotRect[]? Rects { get; set; }
@@ -77,6 +80,9 @@ public sealed class WallState
     public int ActiveMonitor { get; set; }
     public SlotState[] Slots { get; set; } = Array.Empty<SlotState>();
     public string[] Clients { get; set; } = Array.Empty<string>();
+    // True while the wall is showing (a game session is running).
+    public bool SessionActive { get; set; }
+    public string? DeviceName { get; set; }
 }
 
 /// <summary>

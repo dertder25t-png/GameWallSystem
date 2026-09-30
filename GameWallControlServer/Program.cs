@@ -84,15 +84,19 @@ app.MapGet("/api/schedule", async (IHttpClientFactory httpFactory) =>
     }
 
     var now = DateTimeOffset.Now;
-    var windowStart = now.AddHours(-12);   // still show games that just finished
-    var windowEnd = now.AddDays(2);        // hide anything more than 2 days out
+    // College football is a weekly sport: show from the start of the current game
+    // week (games that finished in the last 12 hours stay visible) through the end
+    // of NEXT week. The old "next 2 days" window hid Saturday's slate every
+    // Monday-Wednesday, which is why games seemed to be missing mid-week.
+    var windowStart = now.AddHours(-12);
+    var windowEnd = EndOfNextGameWeek(now);
 
     var games = new List<object>();
     var seenIds = new HashSet<string>();
     string? fetchError = null;
 
     var rangeStart = now.AddDays(-1).ToString("yyyyMMdd");
-    var rangeEnd = now.AddDays(2).ToString("yyyyMMdd");
+    var rangeEnd = windowEnd.ToString("yyyyMMdd");
     var endpoints = new[]
     {
         (sport: "football", url: $"https://site.web.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?dates={rangeStart}-{rangeEnd}&groups=80&limit=300"),
@@ -565,4 +569,15 @@ app.MapGet("/api/panel-data", async (string gameId, string? sport, IHttpClientFa
     });
 });
 
-app.Run("http://0.0.0.0:5050");
+// Local remote: this PC only by default. Pass --lan to let phones on the same Wi-Fi in
+// (the old behaviour). Paired phones normally use GameDay's Wall tab over the internet.
+var lan = args.Any(a => string.Equals(a, "--lan", StringComparison.OrdinalIgnoreCase));
+app.Run(lan ? "http://0.0.0.0:5050" : "http://localhost:5050");
+
+// Game weeks run Tuesday through Monday (Monday-night games belong to the weekend before).
+static DateTimeOffset EndOfNextGameWeek(DateTimeOffset now)
+{
+    var daysUntilMonday = ((int)DayOfWeek.Monday - (int)now.DayOfWeek + 7) % 7;
+    var thisWeekEnd = now.Date.AddDays(daysUntilMonday).AddDays(1); // start of Tuesday
+    return new DateTimeOffset(thisWeekEnd.AddDays(7), now.Offset);
+}

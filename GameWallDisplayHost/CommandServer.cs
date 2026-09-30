@@ -18,6 +18,7 @@ namespace GameWallDisplayHost;
 public sealed class CommandServer
 {
     private readonly int _port;
+    private readonly IPAddress _bindAddress;
     private TcpListener? _listener;
     private sealed class ConnectedClient
     {
@@ -39,14 +40,19 @@ public sealed class CommandServer
         }
     }
 
-    public CommandServer(int port)
+    /// <param name="bindAddress">
+    /// IPAddress.Loopback (default) = only this PC can connect; IPAddress.Any = anyone on the
+    /// Wi-Fi can (the old behaviour, now an opt-in "Allow Wi-Fi remote" tray setting).
+    /// </param>
+    public CommandServer(int port, IPAddress? bindAddress = null)
     {
         _port = port;
+        _bindAddress = bindAddress ?? IPAddress.Loopback;
     }
 
     public void Start()
     {
-        _listener = new TcpListener(IPAddress.Any, _port);
+        _listener = new TcpListener(_bindAddress, _port);
         _listener.Start();
         _ = AcceptLoopAsync();
     }

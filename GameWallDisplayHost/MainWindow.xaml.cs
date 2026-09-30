@@ -56,6 +56,16 @@ public partial class MainWindow : Window
     private bool _isCustomLayout;
     private CustomSlotRect[]? _currentCustomRects;
 
+    // Cloud remote, tray and session state (alpha).
+    private CloudBridge? _bridge;
+    private AgentSettings _settings = new();
+    private TrayIcon? _tray;
+    private PairWindow? _pairWindow;
+    private readonly TaskCompletionSource _webViewsReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private bool _quitting;
+    private bool _sessionActive;
+    private string _localListenText = "";
+
     private const uint SwpNoActivate = 0x0010;
     private const uint SwpNoZOrder = 0x0004;
 
@@ -72,18 +82,87 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        // The slot controls exist as soon as the XAML is loaded; their browsers
+        // (CoreWebView2) are only created the first time the wall is shown, so an
+        // idle laptop sitting in the tray runs no browser processes at all.
+        _slots = new[] { Slot0, Slot1, Slot2, Slot3, Slot4, Slot5, Slot6, Slot7 };
+        _borders = new[] { Border0, Border1, Border2, Border3, Border4, Border5, Border6, Border7 };
+        _selectedMonitorIndex = GetPrimaryMonitorIndex();
         Loaded += MainWindow_Loaded;
         KeyDown += MainWindow_KeyDown;
     }
 
-    private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
+    /// <summary>
+    /// Starts everything that must run even while the wall is hidden: the local
+    /// command server, the cloud link to paired phones, and the tray icon.
+    /// </summary>
+    public void StartServices(bool background)
     {
-        _slots = new[] { Slot0, Slot1, Slot2, Slot3, Slot4, Slot5, Slot6, Slot7 };
-        _borders = new[] { Border0, Border1, Border2, Border3, Border4, Border5, Border6, Border7 };
+        _settings = AgentStore.Load();
+        StartupManager.RefreshPathIfEnabled();
 
         try
         {
-            _selectedMonitorIndex = GetPrimaryMonitorIndex();
+            var bind = _settings.LanRemote ? IPAddress.Any : IPAddress.Loopback;
+            _server = new CommandServer(ListenPort, bind);
+            _server.CommandReceived += OnCommandReceived;
+            _server.ClientJoined += () => Dispatcher.InvokeAsync(BroadcastWallStateAsync).Task;
+            _server.Start();
+            _localListenText = _settings.LanRemote
+                ? $"Wi-Fi remote: {GetLocalIPv4()}:{ListenPort}"
+                : $"Local remote: this PC only (port {ListenPort})";
+        }
+        catch (Exception ex)
+        {
+            _localListenText = $"Local remote off: {ex.Message}";
+        }
+
+        _bridge = new CloudBridge(_settings);
+        _bridge.CommandReceived += OnCommandReceived;
+        _bridge.ClientJoined += () => Dispatcher.InvokeAsync(async () =>
+        {
+            await BroadcastWallStateAsync();
+            await SendDisplayStatusAsync();
+        }).Task.Unwrap();
+        _bridge.Paired += name => Dispatcher.InvokeAsync(() => _tray?.Notify("Phone paired", $"{name} can now control GameWall."));
+        _bridge.StatusChanged += (_, _) => Dispatcher.InvokeAsync(UpdateStatusText);
+        _bridge.Start();
+
+        _tray = new TrayIcon(
+            showWall: () => Dispatcher.InvokeAsync(async () => await EnsureWallVisibleAsync()),
+            endSession: () => Dispatcher.InvokeAsync(EndSession),
+            pairPhone: () => Dispatcher.InvokeAsync(() => ShowPairWindow(null)),
+            showPairedPhones: () => Dispatcher.InvokeAsync(ShowPairedPhonesAsync),
+            forgetPhones: () => Dispatcher.InvokeAsync(ForgetPhonesAsync),
+            setLanRemote: enabled => Dispatcher.InvokeAsync(() => SetLanRemote(enabled)),
+            lanRemoteEnabled: _settings.LanRemote,
+            quit: () => Dispatcher.InvokeAsync(QuitApp));
+
+        Microsoft.Win32.SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
+        UpdateStatusText();
+
+        if (!_settings.FirstRunDone)
+        {
+            _settings.FirstRunDone = true;
+            AgentStore.Save(_settings);
+            try { StartupManager.SetEnabled(true); } catch { }
+            ShowPairWindow(
+                "Welcome to the GameWall alpha. GameWall will now start quietly with Windows " +
+                "and wait in the tray (turn that off from the tray icon). Pair your phone once " +
+                "and you can start the wall from anywhere.");
+        }
+        else if (background)
+        {
+            _tray.Notify("GameWall is ready", "Start the wall from GameDay on your phone.");
+        }
+
+        if (!background) _ = EnsureWallVisibleAsync();
+    }
+
+    private async void MainWindow_Loaded(object sender, RoutedEventArgs e)
+    {
+        try
+        {
             await InitializeWebViewsAsync();
             SlotCanvas.SizeChanged += (_, _) => RenderCanvasSlots();
             ApplyLayout(_currentLayout);
@@ -92,12 +171,7 @@ public partial class MainWindow : Window
             _watchdogTimer.Tick += WatchdogTimer_Tick;
             _watchdogTimer.Start();
 
-            _server = new CommandServer(ListenPort);
-            _server.CommandReceived += OnCommandReceived;
-            _server.ClientJoined += () => Dispatcher.InvokeAsync(BroadcastWallStateAsync).Task;
-            _server.Start();
-
-            StatusText.Text = $"Listening: {GetLocalIPv4()}:{ListenPort}";
+            UpdateStatusText();
             _ = BroadcastWallStateAsync();
         }
         catch (Exception ex)
@@ -105,6 +179,141 @@ public partial class MainWindow : Window
             StatusText.Text = $"Startup failed: {ex.Message}";
             StatusText.Foreground = System.Windows.Media.Brushes.OrangeRed;
         }
+        finally
+        {
+            _webViewsReady.TrySetResult();
+        }
+    }
+
+    private void UpdateStatusText()
+    {
+        var cloud = _bridge is null ? "Cloud: starting" : $"Cloud: {_bridge.StatusMessage}";
+        var name = _settings.DeviceName;
+        StatusText.Text = $"{name} · {cloud} · {_localListenText}";
+        _tray?.SetStatus(_bridge?.State == CloudBridge.LinkState.Online
+            ? $"Online · {(_sessionActive ? "wall showing" : "waiting for your phone")}"
+            : cloud);
+    }
+
+    // ---------------------------------------------------------------- session lifecycle
+
+    /// <summary>Shows the wall (creating the browsers on first use) and keeps the screen awake.</summary>
+    private async Task EnsureWallVisibleAsync()
+    {
+        if (!IsVisible)
+        {
+            Show();
+            if (_selectedMonitorIndex != GetPrimaryMonitorIndex()) MoveToMonitor(_selectedMonitorIndex);
+        }
+        if (WindowState == WindowState.Minimized) WindowState = WindowState.Maximized;
+        Activate();
+        await _webViewsReady.Task;
+        if (!_sessionActive)
+        {
+            _sessionActive = true;
+            KeepAwake.Set(true);
+            UpdateStatusText();
+        }
+    }
+
+    /// <summary>Someone double-clicked GameWall while it was already running in the tray.</summary>
+    public void ShowFromSecondLaunch() => _ = EnsureWallVisibleAsync();
+
+    /// <summary>Clears every screen, hides the wall and lets the laptop sleep again.</summary>
+    private void EndSession()
+    {
+        CloseAllSlots();
+        Hide();
+        _sessionActive = false;
+        KeepAwake.Set(false);
+        UpdateStatusText();
+        _wallState.Revision++;
+        _ = BroadcastWallStateAsync();
+    }
+
+    private void QuitApp()
+    {
+        _quitting = true;
+        Close();
+        System.Windows.Application.Current.Shutdown();
+    }
+
+    private void ShowPairWindow(string? welcome)
+    {
+        if (_bridge is null) return;
+        if (_pairWindow is { IsLoaded: true })
+        {
+            _pairWindow.Activate();
+            return;
+        }
+        _pairWindow = new PairWindow(_bridge, welcome);
+        _pairWindow.Closed += (_, _) => _pairWindow = null;
+        _pairWindow.Show();
+        _pairWindow.Activate();
+    }
+
+    private async Task ShowPairedPhonesAsync()
+    {
+        if (_bridge is null) return;
+        try
+        {
+            var phones = await _bridge.GetPairedPhonesAsync();
+            System.Windows.MessageBox.Show(
+                phones.Length == 0 ? "No phones are paired yet. Use \"Pair a phone…\" in the tray menu." : string.Join(Environment.NewLine, phones),
+                "Paired phones", MessageBoxButton.OK, MessageBoxImage.Information);
+        }
+        catch (Exception ex)
+        {
+            System.Windows.MessageBox.Show(ex.Message, "Paired phones", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    private async Task ForgetPhonesAsync()
+    {
+        if (_bridge is null) return;
+        var answer = System.Windows.MessageBox.Show(
+            "Unpair every phone from this laptop? Each phone will need a new code to control the wall again.",
+            "Forget all phones", MessageBoxButton.YesNo, MessageBoxImage.Question);
+        if (answer != MessageBoxResult.Yes) return;
+        try
+        {
+            await _bridge.ForgetAllPhonesAsync();
+            _tray?.Notify("Phones forgotten", "Pair again from the tray menu when you need to.");
+        }
+        catch (Exception ex)
+        {
+            System.Windows.MessageBox.Show(ex.Message, "Forget all phones", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    private void SetLanRemote(bool enabled)
+    {
+        _settings.LanRemote = enabled;
+        AgentStore.Save(_settings);
+        System.Windows.MessageBox.Show(
+            enabled
+                ? "The Wi-Fi remote will be allowed after you restart GameWall. Anyone on the same Wi-Fi can then control the wall, so only use it on your home network."
+                : "The Wi-Fi remote will be turned off after you restart GameWall.",
+            "Wi-Fi remote", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
+    private void OnDisplaySettingsChanged(object? sender, EventArgs e)
+    {
+        Dispatcher.InvokeAsync(async () =>
+        {
+            await SendDisplayStatusAsync();
+            var count = FormsScreen.AllScreens.Length;
+            if (count > 1 && !_sessionActive)
+                _tray?.Notify("Display connected", $"{count} screens found. Start the wall from GameDay on your phone.");
+        });
+    }
+
+    /// <summary>Sends a message to every local remote and every paired phone.</summary>
+    private Task PublishAsync(object message)
+    {
+        var local = _server?.BroadcastAsync(message) ?? Task.CompletedTask;
+        var cloud = _bridge?.PublishAsync(message) ?? Task.CompletedTask;
+        return Task.WhenAll(local, cloud);
     }
 
     /// <summary>
@@ -174,12 +383,15 @@ public partial class MainWindow : Window
 
     private Task BroadcastWallStateAsync()
     {
-        if (_server is null) return Task.CompletedTask;
         _wallState.ActiveMonitor = _selectedMonitorIndex;
-        _wallState.Clients = _server.GetClientNames();
+        _wallState.Clients = (_server?.GetClientNames() ?? Array.Empty<string>())
+            .Concat(_bridge?.GetClientNames() ?? Array.Empty<string>())
+            .ToArray();
         _wallState.Layout = _isCustomLayout ? "custom" : GetLayoutName(_currentLayout);
         _wallState.CustomRects = _isCustomLayout ? _currentCustomRects : null;
-        return _server.BroadcastAsync(_wallState);
+        _wallState.SessionActive = _sessionActive;
+        _wallState.DeviceName = _settings.DeviceName;
+        return PublishAsync(_wallState);
     }
 
     /// <summary>Arranges the slots per the fractional coordinates of the given preset layout.</summary>
@@ -261,10 +473,31 @@ public partial class MainWindow : Window
         _ = BroadcastWallStateAsync();
     }
 
+    // Commands that put something on screen bring the wall up first.
+    private static readonly HashSet<string> WallActions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "navigate", "layout", "test", "restoreSnapshot", "applyWallState", "monitor",
+    };
+
     private void OnCommandReceived(SlotCommand cmd)
     {
         // WebView2/UI must be touched from the UI thread.
-        Dispatcher.Invoke(() =>
+        Dispatcher.InvokeAsync(async () =>
+        {
+            try
+            {
+                if (WallActions.Contains(cmd.Action)) await EnsureWallVisibleAsync();
+                ApplyCommand(cmd);
+            }
+            catch (Exception ex)
+            {
+                StatusText.Text = $"Command {cmd.Action} failed: {ex.Message}";
+            }
+        });
+    }
+
+    private void ApplyCommand(SlotCommand cmd)
+    {
         {
             switch (cmd.Action)
             {
@@ -356,21 +589,17 @@ public partial class MainWindow : Window
                     break;
 
                 case "closeAll":
-                    for (var s = 0; s < _slots.Length; s++)
-                    {
-                        _lastUrls[s] = null;
-                        _stallFailures[s] = 0;
-                        _slots[s].CoreWebView2?.Navigate("about:blank");
-                        _slotHealth[s] = "ok";
-
-                        var slotState = _wallState.Slots[s];
-                        slotState.Url = null;
-                        slotState.Label = null;
-                        slotState.Network = null;
-                        slotState.Health = "ok";
-                    }
+                    CloseAllSlots();
                     _wallState.Revision++;
                     _ = BroadcastWallStateAsync();
+                    break;
+
+                case "endSession":
+                    EndSession();
+                    break;
+
+                case "identify":
+                    ShowIdentify(cmd.From);
                     break;
 
                 case "layout":
@@ -425,7 +654,37 @@ public partial class MainWindow : Window
                         MoveToMonitor(monitorIndex);
                     break;
             }
-        });
+        }
+    }
+
+    private void CloseAllSlots()
+    {
+        for (var s = 0; s < _slots.Length; s++)
+        {
+            _lastUrls[s] = null;
+            _stallFailures[s] = 0;
+            _slots[s].CoreWebView2?.Navigate("about:blank");
+            _slotHealth[s] = "ok";
+
+            var slotState = _wallState.Slots[s];
+            slotState.Url = null;
+            slotState.Label = null;
+            slotState.Network = null;
+            slotState.Health = "ok";
+        }
+    }
+
+    /// <summary>Flashes this laptop's name on the wall so you know which one you're controlling.</summary>
+    private async void ShowIdentify(string? from)
+    {
+        StatusOverlay.Visibility = Visibility.Visible;
+        var before = StatusText.Text;
+        StatusText.Text = $"This is {_settings.DeviceName}" + (string.IsNullOrWhiteSpace(from) ? "" : $" (asked by {from})");
+        StatusText.FontSize = 28;
+        await Task.Delay(4000);
+        StatusText.FontSize = 13;
+        StatusText.Text = before;
+        UpdateStatusText();
     }
 
     private void MoveToMonitor(int monitorIndex)
@@ -456,13 +715,11 @@ public partial class MainWindow : Window
 
     private async Task SendDisplayStatusAsync()
     {
-        if (_server is null) return;
-
         var screens = FormsScreen.AllScreens;
         if (_selectedMonitorIndex >= screens.Length)
             _selectedMonitorIndex = GetPrimaryMonitorIndex(screens);
 
-        await _server.BroadcastAsync(new DisplayStatus
+        await PublishAsync(new DisplayStatus
         {
             SelectedIndex = _selectedMonitorIndex,
             Displays = screens.Select((screen, index) => new DisplayInfo
@@ -496,7 +753,7 @@ public partial class MainWindow : Window
         {
             _wallState.Slots[slotIndex].Health = status;
         }
-        _ = _server?.BroadcastAsync(new SlotHealth { Slot = slotIndex, Status = status });
+        _ = PublishAsync(new SlotHealth { Slot = slotIndex, Status = status });
         return BroadcastWallStateAsync();
     }
 
@@ -583,6 +840,8 @@ public partial class MainWindow : Window
     private void RunTestMode()
     {
         ApplyLayout(Layouts.EightUp);
+        _wallState.Revision++;
+        _ = BroadcastWallStateAsync();
         for (int i = 0; i < TestUrls.Length; i++)
             _slots[i].CoreWebView2?.Navigate(TestUrls[i]);
     }
@@ -595,7 +854,9 @@ public partial class MainWindow : Window
                 RunTestMode();
                 break;
             case Key.Escape:
-                Close();
+                // Esc now ends the session and hides the wall; GameWall keeps waiting
+                // in the tray. Quit from the tray menu.
+                EndSession();
                 break;
             case Key.F11:
                 StatusOverlay.Visibility = StatusOverlay.Visibility == Visibility.Visible
@@ -615,10 +876,26 @@ public partial class MainWindow : Window
         return "127.0.0.1";
     }
 
+    protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
+    {
+        // Closing the wall window (Alt+F4, taskbar) hides it; only "Quit" exits.
+        if (!_quitting)
+        {
+            e.Cancel = true;
+            EndSession();
+            return;
+        }
+        base.OnClosing(e);
+    }
+
     protected override void OnClosed(EventArgs e)
     {
         _watchdogTimer.Stop();
         _server?.Stop();
+        _bridge?.Dispose();
+        _tray?.Dispose();
+        Microsoft.Win32.SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
+        KeepAwake.Set(false);
         base.OnClosed(e);
     }
 }
