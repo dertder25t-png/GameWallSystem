@@ -99,10 +99,8 @@ app.MapGet("/api/schedule", async (IHttpClientFactory httpFactory) =>
     var rangeEnd = windowEnd.ToString("yyyyMMdd");
     var endpoints = new[]
     {
-        (sport: "football", url: $"https://site.web.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?dates={rangeStart}-{rangeEnd}&groups=80&limit=300"),
-        (sport: "mma", url: "https://site.web.api.espn.com/apis/site/v2/sports/mma/ufc/scoreboard"),
-        (sport: "nascar", url: "https://site.web.api.espn.com/apis/site/v2/sports/racing/nascar-premier/scoreboard"),
-        (sport: "f1", url: "https://site.web.api.espn.com/apis/site/v2/sports/racing/f1/scoreboard")
+        // College football only (FBS).
+        (sport: "football", url: $"https://site.web.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?dates={rangeStart}-{rangeEnd}&groups=80&limit=400")
     };
 
     async Task<(string Sport, JsonNode? Root, string? Error)> FetchEndpointAsync((string sport, string url) endpoint)
@@ -160,11 +158,7 @@ app.MapGet("/api/schedule", async (IHttpClientFactory httpFactory) =>
 
                 var dateStr = ev["date"]!.GetValue<string>();
                 var kickoff = DateTimeOffset.Parse(dateStr);
-                var isCurrentSportEvent = result.Sport != "football";
-                var inWindow = isCurrentSportEvent
-                    ? (kickoff >= now.AddDays(-5) && kickoff <= now.AddDays(7))
-                    : (kickoff >= windowStart && kickoff <= windowEnd);
-                if (!inWindow) continue;
+                if (kickoff < windowStart || kickoff > windowEnd) continue;
 
                 string TeamName(JsonNode? c) => c?["team"]?["shortDisplayName"]?.GetValue<string>()
                     ?? c?["team"]?["displayName"]?.GetValue<string>()
@@ -183,166 +177,6 @@ app.MapGet("/api/schedule", async (IHttpClientFactory httpFactory) =>
                 var detail = status["shortDetail"]?.GetValue<string>() ?? "";
 
                 string watchUrl, watchUrlSource;
-
-                if (result.Sport == "mma")
-                {
-                    var bouts = ev["competitions"]?.AsArray();
-                    if (bouts is null) continue;
-                    for (var boutIndex = 0; boutIndex < bouts.Count; boutIndex++)
-                    {
-                        var bout = bouts[boutIndex];
-                        var boutCompetitors = bout?["competitors"]?.AsArray();
-                        if (boutCompetitors is null || boutCompetitors.Count < 2) continue;
-                        var first = boutCompetitors[0];
-                        var second = boutCompetitors[1];
-                        var boutId = $"{eventId}-{boutIndex}";
-                        if (!seenIds.Add(boutId)) continue;
-
-                        var boutStatus = bout?["status"]?["type"];
-                        var boutState = boutStatus?["state"]?.GetValue<string>() ?? state;
-                        var boutDetail = boutStatus?["shortDetail"]?.GetValue<string>() ?? detail;
-
-                        string? boutNetwork = null;
-                        var boutBroadcasts = bout?["broadcasts"]?.AsArray();
-                        if (boutBroadcasts is { Count: > 0 })
-                        {
-                            var names = boutBroadcasts[0]?["names"]?.AsArray();
-                            if (names is { Count: > 0 })
-                                boutNetwork = names[0]?.GetValue<string>();
-                        }
-                        boutNetwork ??= bout?["broadcast"]?.GetValue<string>() ?? "ESPN+";
-                        (watchUrl, watchUrlSource) = ResolveWatchUrl(boutNetwork);
-
-                        games.Add(new
-                        {
-                            id = boutId,
-                            sport = result.Sport,
-                            kickoff = kickoff.ToString("O"),
-                            homeTeam = TeamName(first),
-                            awayTeam = TeamName(second),
-                            homeLogo = TeamLogo(first),
-                            awayLogo = TeamLogo(second),
-                            homeScore = Score(first),
-                            awayScore = Score(second),
-                            state = boutState,
-                            statusDetail = boutDetail,
-                            network = boutNetwork,
-                            watchUrl,
-                            watchUrlSource,
-                            requiresLogin = true,
-                            isRace = false
-                        });
-                    }
-                    continue;
-                }
-
-                if (result.Sport == "nascar")
-                {
-                    if (!seenIds.Add(eventId)) continue;
-                    var comp = ev["competitions"]?[0];
-                    var nascarCompetitors = comp?["competitors"]?.AsArray() ?? [];
-                    var leader = nascarCompetitors.OrderBy(c => c?["order"]?.GetValue<int>() ?? int.MaxValue).FirstOrDefault();
-                    var leaderName = leader?["athlete"]?["displayName"]?.GetValue<string>()
-                        ?? leader?["team"]?["displayName"]?.GetValue<string>();
-
-                    string? nascarNetwork = null;
-                    var nascarBroadcasts = comp?["broadcasts"]?.AsArray();
-                    if (nascarBroadcasts is { Count: > 0 })
-                    {
-                        var names = nascarBroadcasts[0]?["names"]?.AsArray();
-                        if (names is { Count: > 0 })
-                            nascarNetwork = names[0]?.GetValue<string>();
-                    }
-                    nascarNetwork ??= "ESPN";
-                    (watchUrl, watchUrlSource) = ResolveWatchUrl(nascarNetwork);
-
-                    var compStatus = comp?["status"]?["type"];
-                    var raceState = compStatus?["state"]?.GetValue<string>() ?? state;
-                    var raceDetail = compStatus?["shortDetail"]?.GetValue<string>() ?? detail;
-
-                    games.Add(new
-                    {
-                        id = eventId,
-                        sport = result.Sport,
-                        kickoff = kickoff.ToString("O"),
-                        homeTeam = ev["name"]?.GetValue<string>() ?? ev["shortName"]?.GetValue<string>() ?? "NASCAR Cup Series",
-                        awayTeam = "",
-                        homeLogo = (string?)null,
-                        awayLogo = (string?)null,
-                        homeScore = (int?)null,
-                        awayScore = (int?)null,
-                        state = raceState,
-                        statusDetail = string.IsNullOrWhiteSpace(leaderName) ? raceDetail : $"Leader: {leaderName} · {raceDetail}",
-                        network = nascarNetwork,
-                        watchUrl,
-                        watchUrlSource,
-                        requiresLogin = true,
-                        isRace = true
-                    });
-                    continue;
-                }
-
-                if (result.Sport == "f1")
-                {
-                    if (!seenIds.Add(eventId)) continue;
-                    var comps = ev["competitions"]?.AsArray();
-                    var comp = comps?.FirstOrDefault(c =>
-                        string.Equals(c?["type"]?["abbreviation"]?.GetValue<string>(), "Race", StringComparison.OrdinalIgnoreCase) ||
-                        string.Equals(c?["type"]?["id"]?.GetValue<string>(), "3", StringComparison.OrdinalIgnoreCase))
-                        ?? comps?.FirstOrDefault(c => string.Equals(c?["status"]?["type"]?["state"]?.GetValue<string>(), "in", StringComparison.OrdinalIgnoreCase))
-                        ?? comps?.LastOrDefault()
-                        ?? ev["competitions"]?[0];
-
-                    var sessionType = comp?["type"]?["abbreviation"]?.GetValue<string>() ?? "Race";
-                    var compStatus = comp?["status"]?["type"];
-                    var raceState = compStatus?["state"]?.GetValue<string>() ?? state;
-                    var raceDetail = compStatus?["shortDetail"]?.GetValue<string>() ?? detail;
-
-                    var f1Competitors = comp?["competitors"]?.AsArray() ?? [];
-                    var leader = f1Competitors.OrderBy(c => c?["order"]?.GetValue<int>() ?? int.MaxValue).FirstOrDefault();
-                    var leaderName = leader?["athlete"]?["displayName"]?.GetValue<string>()
-                        ?? leader?["team"]?["displayName"]?.GetValue<string>();
-
-                    string? f1Network = null;
-                    var f1Broadcasts = comp?["broadcasts"]?.AsArray();
-                    if (f1Broadcasts is { Count: > 0 })
-                    {
-                        var names = f1Broadcasts[0]?["names"]?.AsArray();
-                        if (names is { Count: > 0 })
-                            f1Network = names[0]?.GetValue<string>();
-                    }
-                    f1Network ??= "ESPN";
-                    (watchUrl, watchUrlSource) = ResolveWatchUrl(f1Network);
-
-                    var eventName = ev["name"]?.GetValue<string>() ?? ev["shortName"]?.GetValue<string>() ?? "Formula 1";
-                    var title = string.Equals(sessionType, "Race", StringComparison.OrdinalIgnoreCase)
-                        ? eventName
-                        : $"{eventName} ({sessionType})";
-
-                    var compDateStr = comp?["date"]?.GetValue<string>();
-                    var f1Kickoff = (compDateStr is not null && DateTimeOffset.TryParse(compDateStr, out var parsedF1Date)) ? parsedF1Date : kickoff;
-
-                    games.Add(new
-                    {
-                        id = eventId,
-                        sport = result.Sport,
-                        kickoff = f1Kickoff.ToString("O"),
-                        homeTeam = title,
-                        awayTeam = "",
-                        homeLogo = (string?)null,
-                        awayLogo = (string?)null,
-                        homeScore = (int?)null,
-                        awayScore = (int?)null,
-                        state = raceState,
-                        statusDetail = string.IsNullOrWhiteSpace(leaderName) ? raceDetail : $"Leader: {leaderName} · {raceDetail}",
-                        network = f1Network,
-                        watchUrl,
-                        watchUrlSource,
-                        requiresLogin = true,
-                        isRace = true
-                    });
-                    continue;
-                }
 
                 if (!seenIds.Add(eventId)) continue;
                 var competition = ev["competitions"]?[0];
@@ -453,16 +287,10 @@ app.MapGet("/api/panel-data", async (string gameId, string? sport, IHttpClientFa
     client.DefaultRequestHeaders.Referrer = new Uri("https://www.espn.com/");
     client.DefaultRequestHeaders.Add("Origin", "https://www.espn.com");
 
-    sport = (sport ?? "football").ToLowerInvariant();
+    sport = "football";
     var rawEventId = gameId.Contains('-') ? gameId.Split('-')[0] : gameId;
 
-    string summaryUrl = sport switch
-    {
-        "mma" => $"https://site.web.api.espn.com/apis/site/v2/sports/mma/ufc/summary?event={rawEventId}",
-        "nascar" => $"https://site.web.api.espn.com/apis/site/v2/sports/racing/nascar-premier/summary?event={rawEventId}",
-        "f1" => $"https://site.web.api.espn.com/apis/site/v2/sports/racing/f1/summary?event={rawEventId}",
-        _ => $"https://site.web.api.espn.com/apis/site/v2/sports/football/college-football/summary?event={rawEventId}"
-    };
+    var summaryUrl = $"https://site.web.api.espn.com/apis/site/v2/sports/football/college-football/summary?event={rawEventId}";
 
     try
     {

@@ -62,7 +62,6 @@
     presets: loadPresets(),
     clients: [],
     health: Array.from({ length: SLOT_COUNT }, () => 'ok'),
-    sportFilters: loadSportFilters(),
     pinnedTeams: loadJsonArray('gamewall_pinned_teams'),
     lastScreenByTeam: loadJsonObject('gamewall_last_screen_by_team'),
     dayPlanner: loadDayPlanner(),
@@ -271,7 +270,7 @@
           layout: '4',
           slotRules: [
             { type: 'pinned', value: '' },
-            { type: 'sport', value: 'football' },
+            { type: 'auto', value: '' },
             { type: 'auto', value: '' },
             { type: 'auto', value: '' }
           ],
@@ -284,7 +283,7 @@
           layout: '4',
           slotRules: [
             { type: 'pinned', value: '' },
-            { type: 'sport', value: 'football' },
+            { type: 'auto', value: '' },
             { type: 'auto', value: '' },
             { type: 'auto', value: '' }
           ],
@@ -293,12 +292,12 @@
         {
           id: 'block-primetime',
           time: '19:00',
-          name: 'Saturday Primetime & UFC',
+          name: 'Saturday Primetime',
           layout: 'featured',
           slotRules: [
             { type: 'pinned', value: '' },
-            { type: 'sport', value: 'mma' },
-            { type: 'sport', value: 'football' },
+            { type: 'auto', value: '' },
+            { type: 'auto', value: '' },
             { type: 'auto', value: '' },
             { type: 'auto', value: '' }
           ],
@@ -442,6 +441,7 @@
   }
 
   function updateHistoryUI() {
+    notifyChange();
     if (el.historyBadge) {
       el.historyBadge.textContent = String(state.actionHistory.length);
     }
@@ -662,23 +662,6 @@
         showPinnedAlert(`${game.awayTeam} @ ${game.homeTeam}: ${game.statusDetail || game.state}`);
     }
   }
-
-  function loadSportFilters() {
-    try {
-      const value = JSON.parse(localStorage.getItem('gamewall_sport_filters') || 'null');
-      return value && typeof value === 'object' ? value : { football: true, mma: true, nascar: true, f1: true };
-    } catch (_) { return { football: true, mma: true, nascar: true, f1: true }; }
-  }
-
-  document.querySelectorAll('.sport-filters input[data-sport]').forEach(input => {
-    input.checked = state.sportFilters[input.dataset.sport] !== false;
-    input.addEventListener('change', () => {
-      state.sportFilters[input.dataset.sport] = input.checked;
-      localStorage.setItem('gamewall_sport_filters', JSON.stringify(state.sportFilters));
-      renderSchedule();
-      renderTicker();
-    });
-  });
 
   function loadPresets() {
     try {
@@ -980,7 +963,8 @@
       el.subscriptionsError.hidden = false;
       el.subscriptionsError.textContent = 'Could not load subscription services. The generic schedule links will still work.';
     }
-    if (localStorage.getItem('gamewall_subscriptions') === null) openSubscriptionsModal();
+    // Phones show a gentle "pick your services" card instead of a pop-up.
+    if (localStorage.getItem('gamewall_subscriptions') === null && !document.documentElement.classList.contains('m-ui-early')) openSubscriptionsModal();
   }
 
   // ---------------- Manual "add a game" fallback ----------------
@@ -1186,6 +1170,8 @@
 
   function updateMonitors(message) {
     state.monitors = message.displays || [];
+    state.selectedMonitor = message.selectedIndex ?? 0;
+    notifyChange();
     el.monitorPicker.innerHTML = '';
     for (const monitor of state.monitors) {
       const option = document.createElement('option');
@@ -1295,9 +1281,10 @@
   }
 
   function renderSchedule() {
+    notifyChange();
     const combined = [
       ...state.customGames,
-      ...state.schedule.filter(game => state.sportFilters[game.sport || 'football'] !== false),
+      ...state.schedule,
     ];
 
     if (!combined.length) {
@@ -1525,7 +1512,22 @@
     recordAction('statsPanel', `Placed ${game.homeTeam} Stats Panel on Screen ${targetSlot + 1}`, before);
   }
 
+  // The phone screen (mobile.js) redraws itself whenever the remote's state changes.
+  let notifyQueued = false;
+  function notifyChange() {
+    if (notifyQueued) return;
+    notifyQueued = true;
+    requestAnimationFrame(() => {
+      notifyQueued = false;
+      const api = window.GameWallApp;
+      if (api && typeof api.onChange === 'function') {
+        try { api.onChange(); } catch (err) { console.error(err); }
+      }
+    });
+  }
+
   function renderSlots() {
+    notifyChange();
     const visibleCount = state.layout === 'custom'
       ? (state.customLayoutRects?.length ?? 4)
       : (LAYOUT_VISIBLE_COUNT[state.layout] ?? 4);
@@ -2193,7 +2195,6 @@
           <option value="auto">Auto-Pick Top Live Game</option>
           <option value="pinned">Favorite / Pinned Team First</option>
           <option value="team">Specific Team...</option>
-          <option value="sport">Specific Sport...</option>
           <option value="network">Specific Network...</option>
           <option value="keep">Keep Current Game Running</option>
         `;
@@ -2202,13 +2203,13 @@
         const valInput = document.createElement('input');
         valInput.type = 'text';
         valInput.value = rule.value || '';
-        valInput.placeholder = rule.type === 'team' ? 'e.g. Georgia' : rule.type === 'sport' ? 'football / mma / nascar / f1' : rule.type === 'network' ? 'ABC / FOX / CBS' : 'Filter value';
+        valInput.placeholder = rule.type === 'team' ? 'e.g. Georgia' : rule.type === 'network' ? 'ABC / FOX / CBS' : 'Filter value';
         valInput.hidden = rule.type === 'auto' || rule.type === 'pinned' || rule.type === 'keep';
 
         typeSelect.addEventListener('change', () => {
           rule.type = typeSelect.value;
           valInput.hidden = rule.type === 'auto' || rule.type === 'pinned' || rule.type === 'keep';
-          valInput.placeholder = rule.type === 'team' ? 'e.g. Georgia' : rule.type === 'sport' ? 'football / mma / nascar / f1' : rule.type === 'network' ? 'ABC / FOX / CBS' : 'Filter value';
+          valInput.placeholder = rule.type === 'team' ? 'e.g. Georgia' : rule.type === 'network' ? 'ABC / FOX / CBS' : 'Filter value';
         });
 
         valInput.addEventListener('input', () => {
@@ -2301,7 +2302,7 @@
         layout: '4',
         slotRules: [
           { type: 'pinned', value: '' },
-          { type: 'sport', value: 'football' },
+          { type: 'auto', value: '' },
           { type: 'auto', value: '' },
           { type: 'auto', value: '' }
         ],
@@ -2314,7 +2315,7 @@
         layout: '4',
         slotRules: [
           { type: 'pinned', value: '' },
-          { type: 'sport', value: 'football' },
+          { type: 'auto', value: '' },
           { type: 'auto', value: '' },
           { type: 'auto', value: '' }
         ],
@@ -2323,12 +2324,12 @@
       {
         id: 'block-primetime',
         time: '19:00',
-        name: 'Primetime Football & UFC Main Card',
+        name: 'Primetime Football',
         layout: 'featured',
         slotRules: [
           { type: 'pinned', value: '' },
-          { type: 'sport', value: 'mma' },
-          { type: 'sport', value: 'football' },
+          { type: 'auto', value: '' },
+          { type: 'auto', value: '' },
           { type: 'auto', value: '' },
           { type: 'auto', value: '' }
         ],
@@ -2340,7 +2341,7 @@
         name: 'Late Night Pac-12 & UFC Main Event',
         layout: '2',
         slotRules: [
-          { type: 'sport', value: 'mma' },
+          { type: 'auto', value: '' },
           { type: 'auto', value: '' }
         ],
         executedDate: null
@@ -2641,7 +2642,7 @@
   }
 
   function renderTicker() {
-    const filtered = state.schedule.filter(g => state.sportFilters[g.sport || 'football'] !== false);
+    const filtered = state.schedule;
     const live = filtered.filter(g => g.state === 'in');
     const list = live.length ? live : filtered.slice(0, 12);
 
@@ -2671,5 +2672,114 @@
   setInterval(loadSchedule, 30000);
   setInterval(dayPlannerTick, 12000);
   setInterval(checkAutoClearFinishedGames, 60000);
+
+  // ---------------- API for the phone screen (mobile.js) ----------------
+  // The phone UI is a different presentation of the same remote: it calls these
+  // functions and the existing buttons, so every feature behaves identically.
+  function visibleSlotCount() {
+    return state.layout === 'custom'
+      ? (state.customLayoutRects?.length ?? 4)
+      : (LAYOUT_VISIBLE_COUNT[state.layout] ?? 4);
+  }
+
+  function layoutRects() {
+    if (state.layout === 'custom' && Array.isArray(state.customLayoutRects) && state.customLayoutRects.length)
+      return state.customLayoutRects;
+    return PRESET_RECTS[state.layout] || PRESET_RECTS['4'];
+  }
+
+  function serviceLabelFor(game) {
+    if (!game || game.custom) return game?.network || '';
+    const url = pickWatchUrl(game.network, state.subscriptions, state.networksData, game.watchUrl);
+    const services = { ...(state.networksData?.services || {}), ...(state.customServices || {}) };
+    for (const [, svc] of Object.entries(services)) {
+      if (svc && (svc.defaultUrl === url || svc.loginUrl === url)) return svc.label;
+    }
+    try { return new URL(url).hostname.replace(/^www\./, ''); } catch (_) { return ''; }
+  }
+
+  window.GameWallApp = {
+    state,
+    SLOT_COUNT,
+    PRESET_RECTS,
+    onChange: null,
+    visibleSlotCount,
+    layoutRects,
+    formatKickoff,
+    isPinnedGame,
+    findUsualSlot,
+    rankGame,
+    serviceLabelFor,
+    sendCommand,
+    setLayout(layout) {
+      const button = el.layoutPicker.querySelector(`button[data-layout="${layout}"]`);
+      if (button) button.click();
+    },
+    assignGame(game, slotIndex) { assignGameToSlot(game, slotIndex); },
+    showStats(game, slotIndex) { openStatsPanelForGame(game, slotIndex); },
+    closeSlot,
+    clearSlot,
+    swapSlots,
+    setMuted(slotIndex, muted) {
+      state.slots[slotIndex].muted = muted;
+      sendCommand({ action: 'mute', slot: slotIndex, muted });
+      renderSlots();
+    },
+    setVolume(slotIndex, volume) {
+      state.slots[slotIndex].volume = volume;
+      sendCommand({ action: 'volume', slot: slotIndex, volume });
+    },
+    reopenSlot(slotIndex) {
+      const slot = state.slots[slotIndex];
+      if (!slot.lastUrl) return;
+      const before = snapshotWallState();
+      slot.label = slot.lastLabel;
+      slot.network = slot.lastNetwork;
+      slot.muted = false;
+      sendCommand({ action: 'navigate', slot: slotIndex, url: slot.lastUrl, label: slot.lastLabel, network: slot.lastNetwork,
+        lastGameJson: slot.lastGame ? JSON.stringify(slot.lastGame) : null });
+      sendCommand({ action: 'mute', slot: slotIndex, muted: false });
+      renderSlots();
+      recordAction('reopen', `Reopened ${slot.label} on Screen ${slotIndex + 1}`, before);
+    },
+    autoFill: autoFillSlots,
+    undo() { undoAction(); },
+    applyPreset: restorePreset,
+    savePreset(name) {
+      if (!name?.trim()) return;
+      state.presets[name.trim()] = snapshotSlots();
+      localStorage.setItem('gamewall_presets', JSON.stringify(state.presets));
+      renderPresetPicker();
+      notifyChange();
+    },
+    deletePreset(name) {
+      delete state.presets[name];
+      localStorage.setItem('gamewall_presets', JSON.stringify(state.presets));
+      renderPresetPicker();
+      notifyChange();
+    },
+    togglePinTeam,
+    addCustomGame(label, url) {
+      el.addGameLabel.value = label;
+      el.addGameUrl.value = url;
+      el.addGameBtn.click();
+    },
+    removeCustomGame,
+    setMonitor(index) {
+      el.monitorPicker.value = String(index);
+      el.monitorPicker.dispatchEvent(new Event('change'));
+      state.selectedMonitor = index;
+      notifyChange();
+    },
+    testMode() { el.testModeBtn.click(); },
+    closeAll() { el.closeAllBtn.click(); },
+    endSession() { document.getElementById('endSessionBtn')?.click(); },
+    openSubscriptions: openSubscriptionsModal,
+    openLayoutEditor: () => el.customLayoutBtn.click(),
+    openDayPlanner: () => el.dayPlannerBtn.click(),
+    openHistory: () => el.historyBtn.click(),
+    refreshSchedule: loadSchedule,
+  };
+  notifyChange();
 })();
 

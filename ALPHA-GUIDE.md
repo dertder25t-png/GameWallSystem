@@ -6,11 +6,18 @@ the tray and only wakes the wall up when your phone asks for it.
 
 ## What's new
 
-- **Phone remote inside GameDay.** New **Wall** tab (between Games and Teams). It is the
-  full GameWall remote: layouts 1/2/4/6/8/Featured, custom layouts, presets, Day
-  Planner, pinned teams, last-screen memory, undo/history, stats panels, test mode,
-  subscriptions picker, monitor picker. Restyled to GameDay's black look, with a
-  phone layout (screens on top, games underneath, tools in one swipeable row).
+- **Phone remote inside GameDay.** New **Wall** tab (between Games and Teams), built
+  like the rest of GameDay:
+  - a live picture of the wall: tap a screen for sound, volume, change game, swap, off
+  - layout chips (1/2/4/6/8/Featured/Custom), **Fill empty screens**, **Undo**
+  - the week's college football games: tap one, then tap the screen it goes on
+    (or show its live stats instead)
+  - **Tools** (top right): saved lineups, custom layout, Day Planner, history,
+    streaming services, favorite teams, test pattern, turn off all, end session
+  - tap the laptop name for the display picker, identify and unpair
+  On a laptop or tablet browser you get the full desktop remote instead.
+- **College football only.** UFC, NASCAR and F1 are gone from the schedule and filters.
+  Anything else can still go on a screen with **Add a stream by link**.
 - **Pair once, control from anywhere.** The laptop shows a 6-digit code; enter it in
   the Wall tab. After that your phone reaches the laptop through the internet, not
   the Wi-Fi.
@@ -53,9 +60,10 @@ The pairing server is already live; nothing else needs deploying.
 
 1. Plug the laptop into power and the projector, open the lid.
 2. Phone → GameDay → **Wall**. The laptop shows as *online* (green dot).
-3. Pick a layout, or apply a saved preset. Tap a game, then a screen.
-4. **Display** (in the tool row) picks the projector if it isn't chosen yet.
-5. Done for the day: **End session**.
+3. Pick a layout (or Tools → Saved lineups), then **Fill empty screens** or tap a game
+   and tap its screen.
+4. Tap the laptop name at the top to pick the projector if it isn't chosen yet.
+5. Done for the day: Tools → **End session**.
 
 ## If something goes wrong
 

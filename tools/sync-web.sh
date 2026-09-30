@@ -6,7 +6,7 @@ cd "$(dirname "$0")/.."
 src=GameWallControlServer/wwwroot
 dst=web/wall
 mkdir -p "$dst"
-for f in index.html app.js style.css gameday-theme.css panel.html panel.js wall-cloud.js; do
+for f in index.html app.js style.css gameday-theme.css mobile.css mobile.js panel.html panel.js wall-cloud.js; do
   cp "$src/$f" "$dst/$f"
 done
 cp GameWallControlServer/networks.json web/api/_lib/networks.json

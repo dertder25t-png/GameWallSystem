@@ -76,10 +76,8 @@ async function buildSchedule(now = new Date()) {
   const rangeEnd = ymd(windowEnd);
   const base = 'https://site.web.api.espn.com/apis/site/v2/sports';
   const endpoints = [
+    // College football only (FBS). Other sports were dropped for the CFB ecosystem.
     { sport: 'football', url: `${base}/football/college-football/scoreboard?dates=${rangeStart}-${rangeEnd}&groups=80&limit=400` },
-    { sport: 'mma', url: `${base}/mma/ufc/scoreboard` },
-    { sport: 'nascar', url: `${base}/racing/nascar-premier/scoreboard` },
-    { sport: 'f1', url: `${base}/racing/f1/scoreboard` },
   ];
 
   const results = await Promise.all(endpoints.map(async e => {
@@ -102,68 +100,11 @@ async function buildSchedule(now = new Date()) {
       try {
         const eventId = String(ev.id);
         const kickoff = new Date(ev.date);
-        const otherSport = result.sport !== 'football';
-        const inWindow = otherSport
-          ? kickoff >= new Date(now.getTime() - 5 * 86400000) && kickoff <= new Date(now.getTime() + 7 * 86400000)
-          : kickoff >= windowStart && kickoff <= windowEnd;
-        if (!inWindow) continue;
+        if (kickoff < windowStart || kickoff > windowEnd) continue;
 
         const statusType = ev.status?.type || {};
         const state = statusType.state || 'pre';
         const detail = statusType.shortDetail || '';
-
-        if (result.sport === 'mma') {
-          (ev.competitions || []).forEach((bout, i) => {
-            const cs = bout?.competitors;
-            if (!Array.isArray(cs) || cs.length < 2) return;
-            const boutId = `${eventId}-${i}`;
-            if (seen.has(boutId)) return;
-            seen.add(boutId);
-            const bs = bout?.status?.type || {};
-            const network = firstBroadcast(bout) || bout?.broadcast || 'ESPN+';
-            const watch = resolveWatchUrl(network);
-            games.push({
-              id: boutId, sport: 'mma', kickoff: kickoff.toISOString(),
-              homeTeam: teamName(cs[0]), awayTeam: teamName(cs[1]),
-              homeLogo: teamLogo(cs[0]), awayLogo: teamLogo(cs[1]),
-              homeScore: score(cs[0]), awayScore: score(cs[1]),
-              state: bs.state || state, statusDetail: bs.shortDetail || detail,
-              network, watchUrl: watch.url, watchUrlSource: watch.source, requiresLogin: true, isRace: false,
-            });
-          });
-          continue;
-        }
-
-        if (result.sport === 'nascar' || result.sport === 'f1') {
-          if (seen.has(eventId)) continue;
-          seen.add(eventId);
-          let comp = ev.competitions?.[0];
-          if (result.sport === 'f1') {
-            const comps = ev.competitions || [];
-            comp = comps.find(c => /^race$/i.test(c?.type?.abbreviation || '') || c?.type?.id === '3')
-              || comps.find(c => c?.status?.type?.state === 'in')
-              || comps[comps.length - 1] || ev.competitions?.[0];
-          }
-          const competitors = [...(comp?.competitors || [])].sort((a, b) => (a?.order ?? 1e9) - (b?.order ?? 1e9));
-          const leader = competitors[0];
-          const leaderName = leader?.athlete?.displayName || leader?.team?.displayName;
-          const network = firstBroadcast(comp) || 'ESPN';
-          const watch = resolveWatchUrl(network);
-          const cst = comp?.status?.type || {};
-          const raceState = cst.state || state;
-          const raceDetail = cst.shortDetail || detail;
-          const eventName = ev.name || ev.shortName || (result.sport === 'f1' ? 'Formula 1' : 'NASCAR Cup Series');
-          const session = comp?.type?.abbreviation || 'Race';
-          const title = result.sport === 'f1' && !/^race$/i.test(session) ? `${eventName} (${session})` : eventName;
-          const when = result.sport === 'f1' && comp?.date ? new Date(comp.date) : kickoff;
-          games.push({
-            id: eventId, sport: result.sport, kickoff: when.toISOString(),
-            homeTeam: title, awayTeam: '', homeLogo: null, awayLogo: null, homeScore: null, awayScore: null,
-            state: raceState, statusDetail: leaderName ? `Leader: ${leaderName} · ${raceDetail}` : raceDetail,
-            network, watchUrl: watch.url, watchUrlSource: watch.source, requiresLogin: true, isRace: true,
-          });
-          continue;
-        }
 
         if (seen.has(eventId)) continue;
         seen.add(eventId);
@@ -201,11 +142,11 @@ async function buildSchedule(now = new Date()) {
 }
 
 async function buildPanelData(gameId, sport) {
-  sport = String(sport || 'football').toLowerCase();
+  sport = 'football';
   const rawEventId = String(gameId).split('-')[0];
   if (!/^\d+$/.test(rawEventId)) return { gameId, sport, sourceOk: false, message: 'Bad game id.' };
   const base = 'https://site.web.api.espn.com/apis/site/v2/sports';
-  const path = { mma: 'mma/ufc', nascar: 'racing/nascar-premier', f1: 'racing/f1' }[sport] || 'football/college-football';
+  const path = 'football/college-football';
   try {
     const node = await fetchJson(`${base}/${path}/summary?event=${rawEventId}`, 10000);
     const predictor = node.predictor;

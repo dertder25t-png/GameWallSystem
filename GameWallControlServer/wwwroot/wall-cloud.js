@@ -209,9 +209,9 @@
     }
   }
 
-  async function unpair() {
+  async function unpair(skipConfirm) {
     if (!pairing) return;
-    if (!confirm(`Unpair this phone from ${pairing.deviceName || 'the laptop'}?`)) return;
+    if (!skipConfirm && !confirm(`Unpair this phone from ${pairing.deviceName || 'the laptop'}?`)) return;
     const current = pairing;
     savePairing(null);
     await unsubscribe();
@@ -257,6 +257,8 @@
   }
 
   function render() {
+    // Let the phone screen (mobile.js) redraw its header / pairing page too.
+    document.dispatchEvent(new CustomEvent('gamewall:cloud'));
     if (!bar) return;
     if (!pairing) {
       bar.className = 'cloud-bar cloud-bar--pair';
@@ -351,5 +353,18 @@
     },
     send,
     isPaired: () => !!pairing,
+    getStatus: () => ({
+      paired: !!pairing,
+      deviceName: pairing ? pairing.deviceName || 'GameWall laptop' : '',
+      online: agentOnline,
+      connecting: !!pairing && !subscribed,
+      sessionActive,
+      busy,
+      error: lastError,
+      defaultPhoneName: defaultPhoneName(),
+    }),
+    pair,
+    unpair,
+    identify: () => send({ action: 'identify' }),
   };
 })();

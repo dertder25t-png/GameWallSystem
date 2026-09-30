@@ -8,6 +8,8 @@
 <link rel="stylesheet" href="style.css" />
 <!-- GameDay look: black, white type, system font. Loaded after style.css so it wins. -->
 <link rel="stylesheet" href="gameday-theme.css" />
+<!-- Phone screen (GameDay style); the desktop remote is used on wider screens. -->
+<link rel="stylesheet" href="mobile.css" />
 </head>
 <body>
 
@@ -67,12 +69,6 @@
         <span id="scheduleUpdated" class="sidebar-updated"></span>
       </div>
       <div id="scheduleWarning" class="schedule-warning" hidden></div>
-      <div class="sport-filters" aria-label="Sports">
-        <label><input type="checkbox" data-sport="football" checked /> Football</label>
-        <label><input type="checkbox" data-sport="mma" checked /> UFC</label>
-        <label><input type="checkbox" data-sport="nascar" checked /> NASCAR</label>
-        <label><input type="checkbox" data-sport="f1" checked /> F1</label>
-      </div>
       <div class="pinned-teams">
         <label for="pinnedTeamsInput">Pinned teams</label>
         <input id="pinnedTeamsInput" type="text" placeholder="Georgia Bulldogs, Michigan" list="teamSuggestions" />
@@ -186,7 +182,7 @@
 
       <div class="custom-layout-save-bar">
         <label for="customLayoutNameInput">Preset name:</label>
-        <input type="text" id="customLayoutNameInput" placeholder="e.g. UFC Fight Night + 2 Football" />
+        <input type="text" id="customLayoutNameInput" placeholder="e.g. Rivalry Saturday" />
         <button id="saveCustomPresetBtn" class="btn-secondary" type="button">Save Preset</button>
         <select id="customPresetSelect" aria-label="Saved Custom Layouts">
           <option value="">Saved Presets...</option>
@@ -213,7 +209,7 @@
         <button id="dayPlannerCloseBtn" class="modal-close" type="button" aria-label="Close">&times;</button>
       </div>
       <p class="modal-copy">
-        Plan out your full day of sports content in advance. GameWall automatically switches visual layouts, populates priority teams, and auto-switches screens as games finish so you never have to touch a controller.
+        Plan your college football Saturday in advance. GameWall switches layouts on schedule, puts your favorite teams on first, and swaps in a new game when one ends.
       </p>
 
       <div class="planner-controls-card">
@@ -325,5 +321,6 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js" defer></script>
   <script src="wall-cloud.js"></script>
   <script src="app.js" defer></script>
+  <script src="mobile.js" defer></script>
 </body>
 </html>
