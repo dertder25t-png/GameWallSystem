@@ -13,19 +13,6 @@ const ESPN_HEADERS = {
   accept: 'application/json, text/plain, */*',
 };
 
-function ymd(date) {
-  return date.toISOString().slice(0, 10).replace(/-/g, '');
-}
-
-// Game weeks run Tuesday through Monday, US Eastern. Show everything from 12 hours ago
-// through the end of NEXT week, so Saturday's games are visible all week long.
-function endOfNextGameWeek(now) {
-  const weekday = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', weekday: 'short' }).format(now);
-  const dow = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(weekday);
-  const daysUntilTuesday = ((2 - dow + 7) % 7) || 7;
-  return new Date(now.getTime() + (daysUntilTuesday + 7) * 86400000);
-}
-
 function resolveWatchUrl(network) {
   const entries = networksData.networks || {};
   const priority = networksData.priority || [];
@@ -42,13 +29,7 @@ async function fetchJson(url, timeoutMs = 12000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    let res = await fetch(url, { headers: ESPN_HEADERS, signal: controller.signal });
-    if (!res.ok) {
-      const alt = url.includes('site.web.api.espn.com')
-        ? url.replace('site.web.api.espn.com', 'site.api.espn.com')
-        : url.replace('site.api.espn.com', 'site.web.api.espn.com');
-      res = await fetch(alt, { headers: ESPN_HEADERS, signal: controller.signal });
-    }
+    const res = await fetch(url, { headers: ESPN_HEADERS, signal: controller.signal });
     if (!res.ok) throw new Error(`ESPN returned ${res.status}`);
     return await res.json();
   } finally {
@@ -57,7 +38,7 @@ async function fetchJson(url, timeoutMs = 12000) {
 }
 
 const teamName = c => c?.team?.shortDisplayName ?? c?.team?.displayName ?? c?.athlete?.shortName ?? c?.athlete?.displayName ?? 'Unknown competitor';
-const teamLogo = c => (c?.team?.logos || []).map(l => l?.href).find(Boolean) ?? c?.athlete?.flag?.href ?? c?.athlete?.headshot?.href ?? null;
+const teamLogo = c => c?.team?.logo || (c?.team?.logos || []).map(l => l?.href).find(Boolean) || null;
 const score = c => {
   if (c?.score == null) return null;
   const n = parseInt(typeof c.score === 'object' ? c.score.value : c.score, 10);
@@ -70,20 +51,24 @@ const firstBroadcast = comp => {
 const num = v => (v == null || v === '' || Number.isNaN(Number(v)) ? null : Number(v));
 
 async function buildSchedule(now = new Date()) {
+  // ESPN rejects long date ranges, so ask by week instead: the current week (ESPN's
+  // default), then next week by number. Finals older than 12 hours drop off.
   const windowStart = new Date(now.getTime() - 12 * 3600000);
-  const windowEnd = endOfNextGameWeek(now);
-  const rangeStart = ymd(new Date(now.getTime() - 86400000));
-  const rangeEnd = ymd(windowEnd);
   const base = 'https://site.web.api.espn.com/apis/site/v2/sports';
-  const endpoints = [
-    // College football only (FBS). Other sports were dropped for the CFB ecosystem.
-    { sport: 'football', url: `${base}/football/college-football/scoreboard?dates=${rangeStart}-${rangeEnd}&groups=80&limit=400` },
-  ];
-
-  const results = await Promise.all(endpoints.map(async e => {
-    try { return { sport: e.sport, root: await fetchJson(e.url) }; }
-    catch (err) { return { sport: e.sport, error: err.message }; }
-  }));
+  const cfb = `${base}/football/college-football/scoreboard?groups=80&limit=300`;
+  const results = [];
+  try {
+    const current = await fetchJson(cfb);
+    results.push({ sport: 'football', root: current });
+    const week = current?.week?.number;
+    const seasonType = current?.leagues?.[0]?.season?.type?.type ?? current?.season?.type;
+    if (Number.isInteger(week) && seasonType) {
+      try { results.push({ sport: 'football', root: await fetchJson(`${cfb}&week=${week + 1}&seasontype=${seasonType}`) }); }
+      catch (_) { /* no next week (end of season): fine */ }
+    }
+  } catch (err) {
+    results.push({ sport: 'football', error: err.message });
+  }
 
   const games = [];
   const seen = new Set();
@@ -100,7 +85,7 @@ async function buildSchedule(now = new Date()) {
       try {
         const eventId = String(ev.id);
         const kickoff = new Date(ev.date);
-        if (kickoff < windowStart || kickoff > windowEnd) continue;
+        if (kickoff < windowStart) continue;
 
         const statusType = ev.status?.type || {};
         const state = statusType.state || 'pre';
@@ -182,4 +167,4 @@ async function buildPanelData(gameId, sport) {
   }
 }
 
-module.exports = { buildSchedule, buildPanelData, networksData, endOfNextGameWeek, resolveWatchUrl };
+module.exports = { buildSchedule, buildPanelData, networksData, resolveWatchUrl };

@@ -84,24 +84,18 @@ app.MapGet("/api/schedule", async (IHttpClientFactory httpFactory) =>
     }
 
     var now = DateTimeOffset.Now;
-    // College football is a weekly sport: show from the start of the current game
-    // week (games that finished in the last 12 hours stay visible) through the end
-    // of NEXT week. The old "next 2 days" window hid Saturday's slate every
-    // Monday-Wednesday, which is why games seemed to be missing mid-week.
+    // College football is a weekly sport: show this week's and next week's games
+    // (finals from the last 12 hours stay visible). The old "next 2 days" date range
+    // hid Saturday's slate every Monday-Wednesday, and ESPN rejects long date ranges,
+    // so we ask ESPN by week number instead.
     var windowStart = now.AddHours(-12);
-    var windowEnd = EndOfNextGameWeek(now);
 
     var games = new List<object>();
     var seenIds = new HashSet<string>();
     string? fetchError = null;
 
-    var rangeStart = now.AddDays(-1).ToString("yyyyMMdd");
-    var rangeEnd = windowEnd.ToString("yyyyMMdd");
-    var endpoints = new[]
-    {
-        // College football only (FBS).
-        (sport: "football", url: $"https://site.web.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?dates={rangeStart}-{rangeEnd}&groups=80&limit=400")
-    };
+    // College football only (FBS). ESPN's default scoreboard is the current week.
+    const string cfbScoreboard = "https://site.web.api.espn.com/apis/site/v2/sports/football/college-football/scoreboard?groups=80&limit=300";
 
     async Task<(string Sport, JsonNode? Root, string? Error)> FetchEndpointAsync((string sport, string url) endpoint)
     {
@@ -141,7 +135,16 @@ app.MapGet("/api/schedule", async (IHttpClientFactory httpFactory) =>
         }
     }
 
-    var results = await Task.WhenAll(endpoints.Select(FetchEndpointAsync));
+    var results = new List<(string Sport, JsonNode? Root, string? Error)>();
+    var current = await FetchEndpointAsync(("football", cfbScoreboard));
+    results.Add(current);
+    var weekNumber = current.Root?["week"]?["number"]?.GetValue<int>();
+    var seasonType = current.Root?["leagues"]?[0]?["season"]?["type"]?["type"]?.GetValue<int>();
+    if (weekNumber is int week && seasonType is int type)
+    {
+        var next = await FetchEndpointAsync(("football", $"{cfbScoreboard}&week={week + 1}&seasontype={type}"));
+        if (next.Root is not null) results.Add(next); // no next week at season's end: fine
+    }
     var successfulFetches = 0;
     foreach (var result in results)
     {
@@ -158,7 +161,7 @@ app.MapGet("/api/schedule", async (IHttpClientFactory httpFactory) =>
 
                 var dateStr = ev["date"]!.GetValue<string>();
                 var kickoff = DateTimeOffset.Parse(dateStr);
-                if (kickoff < windowStart || kickoff > windowEnd) continue;
+                if (kickoff < windowStart) continue;
 
                 string TeamName(JsonNode? c) => c?["team"]?["shortDisplayName"]?.GetValue<string>()
                     ?? c?["team"]?["displayName"]?.GetValue<string>()
@@ -166,7 +169,8 @@ app.MapGet("/api/schedule", async (IHttpClientFactory httpFactory) =>
                     ?? c?["athlete"]?["displayName"]?.GetValue<string>()
                     ?? "Unknown competitor";
                 string? TeamLogo(JsonNode? c) =>
-                    c?["team"]?["logos"]?.AsArray()?.Select(logo => logo?["href"]?.GetValue<string>()).FirstOrDefault(href => !string.IsNullOrWhiteSpace(href))
+                    c?["team"]?["logo"]?.GetValue<string>()
+                    ?? c?["team"]?["logos"]?.AsArray()?.Select(logo => logo?["href"]?.GetValue<string>()).FirstOrDefault(href => !string.IsNullOrWhiteSpace(href))
                     ?? c?["athlete"]?["flag"]?["href"]?.GetValue<string>()
                     ?? c?["athlete"]?["headshot"]?["href"]?.GetValue<string>();
                 int? Score(JsonNode? c) => c!["score"] is null ? null
@@ -401,11 +405,3 @@ app.MapGet("/api/panel-data", async (string gameId, string? sport, IHttpClientFa
 // (the old behaviour). Paired phones normally use GameDay's Wall tab over the internet.
 var lan = args.Any(a => string.Equals(a, "--lan", StringComparison.OrdinalIgnoreCase));
 app.Run(lan ? "http://0.0.0.0:5050" : "http://localhost:5050");
-
-// Game weeks run Tuesday through Monday (Monday-night games belong to the weekend before).
-static DateTimeOffset EndOfNextGameWeek(DateTimeOffset now)
-{
-    var daysUntilMonday = ((int)DayOfWeek.Monday - (int)now.DayOfWeek + 7) % 7;
-    var thisWeekEnd = now.Date.AddDays(daysUntilMonday).AddDays(1); // start of Tuesday
-    return new DateTimeOffset(thisWeekEnd.AddDays(7), now.Offset);
-}
