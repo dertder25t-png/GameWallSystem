@@ -118,7 +118,16 @@ public sealed class CloudBridge : IDisposable
         return body;
     }
 
+    private readonly SemaphoreSlim _registerLock = new(1, 1);
+
     private async Task EnsureRegisteredAsync(CancellationToken ct)
+    {
+        await _registerLock.WaitAsync(ct);
+        try { await EnsureRegisteredCoreAsync(ct); }
+        finally { _registerLock.Release(); }
+    }
+
+    private async Task EnsureRegisteredCoreAsync(CancellationToken ct)
     {
         if (_settings.HasIdentity && AgentStore.Unprotect(_settings.DeviceSecretProtected) is not null
             && AgentStore.Unprotect(_settings.SignKeyProtected) is not null)

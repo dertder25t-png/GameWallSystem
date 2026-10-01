@@ -45,7 +45,7 @@ public sealed class TrayIcon : IDisposable
         menu.Items.Add("End session (hide the wall)", null, (_, _) => endSession());
         menu.Items.Add(new WinForms.ToolStripSeparator());
         menu.Items.Add("Pair a phone…", null, (_, _) => pairPhone());
-        menu.Items.Add("Paired phones…", null, (_, _) => showPairedPhones());
+        menu.Items.Add("Check phone link…", null, (_, _) => showPairedPhones());
         menu.Items.Add("Forget all phones", null, (_, _) => forgetPhones());
         menu.Items.Add(new WinForms.ToolStripSeparator());
         menu.Items.Add(_startWithWindows);

@@ -61,6 +61,8 @@ public partial class MainWindow : Window
     private AgentSettings _settings = new();
     private TrayIcon? _tray;
     private PairWindow? _pairWindow;
+    private int _pairedPhoneCount = -1;
+    private readonly System.Windows.Threading.DispatcherTimer _pairCheckTimer = new() { Interval = TimeSpan.FromSeconds(60) };
     private readonly TaskCompletionSource _webViewsReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private bool _quitting;
     private bool _sessionActive;
@@ -124,7 +126,11 @@ public partial class MainWindow : Window
             await BroadcastWallStateAsync();
             await SendDisplayStatusAsync();
         }).Task.Unwrap();
-        _bridge.Paired += name => Dispatcher.InvokeAsync(() => _tray?.Notify("Phone paired", $"{name} can now control GameWall."));
+        _bridge.Paired += name => Dispatcher.InvokeAsync(() =>
+        {
+            _tray?.Notify("Phone paired", $"{name} can now control GameWall.");
+            _ = RefreshPairingAsync(autoShow: false);
+        });
         _bridge.StatusChanged += (_, _) => Dispatcher.InvokeAsync(UpdateStatusText);
         _bridge.Start();
 
@@ -141,6 +147,9 @@ public partial class MainWindow : Window
         Microsoft.Win32.SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
         UpdateStatusText();
 
+        _pairCheckTimer.Tick += (_, _) => _ = RefreshPairingAsync(autoShow: false);
+        _pairCheckTimer.Start();
+
         if (!_settings.FirstRunDone)
         {
             _settings.FirstRunDone = true;
@@ -151,9 +160,11 @@ public partial class MainWindow : Window
                 "and wait in the tray (turn that off from the tray icon). Pair your phone once " +
                 "and you can start the wall from anywhere.");
         }
-        else if (background)
+        else
         {
-            _tray.Notify("GameWall is ready", "Start the wall from GameDay on your phone.");
+            // Not the first run: still check that a phone is linked. If none is (the phone
+            // unpaired, or the server forgot this laptop), the code window opens by itself.
+            _ = RefreshPairingAsync(autoShow: true);
         }
 
         if (!background) _ = EnsureWallVisibleAsync();
@@ -190,9 +201,46 @@ public partial class MainWindow : Window
         var cloud = _bridge is null ? "Cloud: starting" : $"Cloud: {_bridge.StatusMessage}";
         var name = _settings.DeviceName;
         StatusText.Text = $"{name} · {cloud} · {_localListenText}";
+        var phones = _pairedPhoneCount switch
+        {
+            < 0 => "checking phone link",
+            0 => "NO PHONE PAIRED",
+            1 => "1 phone paired",
+            var n => $"{n} phones paired",
+        };
         _tray?.SetStatus(_bridge?.State == CloudBridge.LinkState.Online
-            ? $"Online · {(_sessionActive ? "wall showing" : "waiting for your phone")}"
-            : cloud);
+            ? $"Online · {phones} · {(_sessionActive ? "wall showing" : "waiting for your phone")}"
+            : $"{cloud} · {phones}");
+    }
+
+    /// <summary>
+    /// Asks the server how many phones are paired with this laptop. With autoShow, opens
+    /// the pairing-code window when there are none.
+    /// </summary>
+    private async Task RefreshPairingAsync(bool autoShow)
+    {
+        if (_bridge is null) return;
+        try
+        {
+            var phones = await _bridge.GetPairedPhonesAsync();
+            _pairedPhoneCount = phones.Length;
+        }
+        catch
+        {
+            // Offline or server unreachable: keep the last known count.
+            if (_pairedPhoneCount < 0 && autoShow) ShowPairWindow("Couldn't check whether a phone is paired yet. If the code below doesn't load, check the internet connection.");
+            UpdateStatusText();
+            return;
+        }
+        UpdateStatusText();
+        if (autoShow && _pairedPhoneCount == 0)
+        {
+            ShowPairWindow("No phone is paired with this laptop. Enter the code below in GameDay → Wall to link your phone.");
+        }
+        else if (autoShow)
+        {
+            _tray?.Notify("GameWall is ready", $"{_pairedPhoneCount} phone(s) paired. Start the wall from GameDay.");
+        }
     }
 
     // ---------------------------------------------------------------- session lifecycle
@@ -258,13 +306,28 @@ public partial class MainWindow : Window
         try
         {
             var phones = await _bridge.GetPairedPhonesAsync();
-            System.Windows.MessageBox.Show(
-                phones.Length == 0 ? "No phones are paired yet. Use \"Pair a phone…\" in the tray menu." : string.Join(Environment.NewLine, phones),
-                "Paired phones", MessageBoxButton.OK, MessageBoxImage.Information);
+            _pairedPhoneCount = phones.Length;
+            UpdateStatusText();
+            var online = _bridge.GetClientNames();
+            var lines = new List<string>
+            {
+                $"This laptop: {(_bridge.State == CloudBridge.LinkState.Online ? "ONLINE (reachable from your phone)" : "OFFLINE - " + _bridge.StatusMessage)}",
+                "",
+                phones.Length == 0
+                    ? "Paired phones: NONE. Use \"Pair a phone…\" in the tray menu to get a code."
+                    : "Paired phones:\n  " + string.Join("\n  ", phones),
+                "",
+                online.Length == 0
+                    ? "Phones heard from recently: none (open GameDay → Wall on the phone to check in)"
+                    : "Phones heard from recently:\n  " + string.Join("\n  ", online),
+            };
+            System.Windows.MessageBox.Show(string.Join(Environment.NewLine, lines),
+                "Phone link", MessageBoxButton.OK,
+                phones.Length == 0 ? MessageBoxImage.Warning : MessageBoxImage.Information);
         }
         catch (Exception ex)
         {
-            System.Windows.MessageBox.Show(ex.Message, "Paired phones", MessageBoxButton.OK, MessageBoxImage.Warning);
+            System.Windows.MessageBox.Show(ex.Message, "Phone link", MessageBoxButton.OK, MessageBoxImage.Warning);
         }
     }
 
@@ -278,6 +341,8 @@ public partial class MainWindow : Window
         try
         {
             await _bridge.ForgetAllPhonesAsync();
+            _pairedPhoneCount = 0;
+            UpdateStatusText();
             _tray?.Notify("Phones forgotten", "Pair again from the tray menu when you need to.");
         }
         catch (Exception ex)
