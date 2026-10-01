@@ -2196,6 +2196,7 @@
           <option value="pinned">Favorite / Pinned Team First</option>
           <option value="team">Specific Team...</option>
           <option value="network">Specific Network...</option>
+          <option value="link">Paste a Link (known stream)</option>
           <option value="keep">Keep Current Game Running</option>
         `;
         typeSelect.value = rule.type || 'auto';
@@ -2203,26 +2204,94 @@
         const valInput = document.createElement('input');
         valInput.type = 'text';
         valInput.value = rule.value || '';
-        valInput.placeholder = rule.type === 'team' ? 'e.g. Georgia' : rule.type === 'network' ? 'ABC / FOX / CBS' : 'Filter value';
-        valInput.hidden = rule.type === 'auto' || rule.type === 'pinned' || rule.type === 'keep';
+
+        const linkNote = document.createElement('div');
+        linkNote.className = 'planner-link-note';
+
+        const labelInput = document.createElement('input');
+        labelInput.type = 'text';
+        labelInput.placeholder = 'Name for this screen (optional)';
+        labelInput.value = rule.label || '';
+        labelInput.addEventListener('input', () => { rule.label = labelInput.value.trim(); });
+
+        const refreshRuleInputs = () => {
+          valInput.hidden = rule.type === 'auto' || rule.type === 'pinned' || rule.type === 'keep';
+          labelInput.hidden = rule.type !== 'link';
+          valInput.placeholder = rule.type === 'team' ? 'e.g. Georgia'
+            : rule.type === 'network' ? 'ABC / FOX / CBS'
+            : rule.type === 'link' ? 'Paste the stream link (https://...)'
+            : 'Filter value';
+          if (rule.type === 'link') {
+            const ok = !rule.value || Boolean(normalizePlannerLink(rule.value));
+            linkNote.hidden = ok;
+            linkNote.textContent = ok ? '' : 'That doesn\u2019t look like a web link. It needs to start with http:// or https://';
+          } else {
+            linkNote.hidden = true;
+          }
+        };
+        refreshRuleInputs();
 
         typeSelect.addEventListener('change', () => {
           rule.type = typeSelect.value;
-          valInput.hidden = rule.type === 'auto' || rule.type === 'pinned' || rule.type === 'keep';
-          valInput.placeholder = rule.type === 'team' ? 'e.g. Georgia' : rule.type === 'network' ? 'ABC / FOX / CBS' : 'Filter value';
+          refreshRuleInputs();
         });
 
         valInput.addEventListener('input', () => {
           rule.value = valInput.value.trim();
+          if (rule.type === 'link') refreshRuleInputs();
         });
 
-        ruleDiv.append(ruleHead, typeSelect, valInput);
+        // Pasting a web link into any rule turns it into a "Paste a Link" rule.
+        valInput.addEventListener('paste', (ev) => {
+          const text = ((ev.clipboardData && ev.clipboardData.getData('text')) || '').trim();
+          if (!/^https?:\/\/\S+$/i.test(text)) return;
+          ev.preventDefault();
+          rule.type = 'link';
+          rule.value = text;
+          typeSelect.value = 'link';
+          valInput.value = text;
+          refreshRuleInputs();
+        });
+
+        ruleDiv.append(ruleHead, typeSelect, valInput, linkNote, labelInput);
         slotsContainer.appendChild(ruleDiv);
       });
 
       card.append(head, slotsContainer);
       el.plannerBlocksList.appendChild(card);
     });
+  }
+
+  // Accepts a pasted link; only normal http/https addresses are allowed.
+  function normalizePlannerLink(raw) {
+    const text = String(raw || '').trim();
+    if (!text) return null;
+    const withScheme = /^[a-z][a-z\d+.-]*:\/\//i.test(text) ? text : `https://${text}`;
+    try {
+      const u = new URL(withScheme);
+      if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+      if (!u.hostname.includes('.') && u.hostname !== 'localhost') return null;
+      return u.href;
+    } catch (_) { return null; }
+  }
+
+  function plannerLinkGame(rule) {
+    const url = normalizePlannerLink(rule.value);
+    if (!url) return null;
+    let host = '';
+    try { host = new URL(url).hostname.replace(/^www\./, ''); } catch (_) {}
+    let h = 0;
+    for (let c = 0; c < url.length; c++) h = (h * 31 + url.charCodeAt(c)) | 0;
+    return {
+      id: 'planner-link-' + (h >>> 0).toString(36),
+      homeTeam: rule.label || host || 'Stream',
+      awayTeam: '',
+      state: 'pre',
+      statusDetail: '',
+      network: 'Custom',
+      watchUrl: url,
+      custom: true,
+    };
   }
 
   function getLayoutScreenCount(layoutStr) {
@@ -2493,6 +2562,16 @@
       if (manualPrecedence === 'protectUserAssigned' && state.slots[i].manuallyAssigned) continue;
 
       let candidate = null;
+      if (rule.type === 'link') {
+        const linkGame = plannerLinkGame(rule);
+        if (linkGame) {
+          assignGameToSlot(linkGame, i, false);
+          assignedIds.add(linkGame.id);
+        } else if (fallback === 'blank') {
+          closeSlot(i);
+        }
+        continue;
+      }
       if (rule.type === 'pinned') {
         candidate = state.schedule.find(g => isPinnedGame(g) && !assignedIds.has(g.id));
       } else if (rule.type === 'team' && rule.value) {
