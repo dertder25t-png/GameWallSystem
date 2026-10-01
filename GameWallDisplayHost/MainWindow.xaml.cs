@@ -84,6 +84,7 @@ public partial class MainWindow : Window
     public MainWindow()
     {
         InitializeComponent();
+        StayOffTaskbar.Apply(this);
         // The slot controls exist as soon as the XAML is loaded; their browsers
         // (CoreWebView2) are only created the first time the wall is shown, so an
         // idle laptop sitting in the tray runs no browser processes at all.
@@ -237,10 +238,7 @@ public partial class MainWindow : Window
         {
             ShowPairWindow("No phone is paired with this laptop. Enter the code below in GameDay → Wall to link your phone.");
         }
-        else if (autoShow)
-        {
-            _tray?.Notify("GameWall is ready", $"{_pairedPhoneCount} phone(s) paired. Start the wall from GameDay.");
-        }
+        // Paired and ready: stay silent. GameWall shouldn't announce itself at every sign-in.
     }
 
     // ---------------------------------------------------------------- session lifecycle
