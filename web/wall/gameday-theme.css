@@ -1,0 +1,270 @@
+/* GameDay look for the GameWall remote.
+   Loaded after style.css: swaps the palette and type for GameDay's (black, white,
+   system font), rounds the controls to GameDay's shapes, and styles the cloud
+   pairing bar and GameDay's bottom tab bar. The light theme toggle still works. */
+
+:root {
+  --bg: #000000;
+  --panel: #0c0c0c;
+  --panel-raised: #141414;
+  --hairline: #1f1f1f;
+  --text: #f2f2f2;
+  --text-muted: #8b8b8b;
+  --live: #3ecf6e;
+  --accent: #ffffff;
+  --danger: #ff5b5b;
+  --gd-line2: #262626;
+  --gd-ltg: #ffd23f;
+  --safe-b: env(safe-area-inset-bottom, 0px);
+  --safe-t: env(safe-area-inset-top, 0px);
+
+  --font-ui: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-data: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+
+html, body {
+  font-size: 15px;
+  line-height: 1.4;
+  font-variant-numeric: tabular-nums;
+  -webkit-tap-highlight-color: transparent;
+}
+
+input, select, button { font-family: var(--font-ui); }
+
+/* ---------- header ---------- */
+.setup-bar { background: var(--bg); }
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  background: rgba(0, 0, 0, 0.92);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  padding: calc(var(--safe-t) + 10px) 16px 10px;
+  gap: 12px;
+}
+body.theme-light .topbar { background: rgba(243, 241, 236, 0.92); }
+.wordmark { font-size: 17px; letter-spacing: 0.2px; }
+
+/* Layout picker = GameDay chips */
+.layout-picker { gap: 6px; }
+.layout-picker button {
+  border-radius: 99px;
+  border-color: var(--gd-line2);
+  background: #0a0a0a;
+  padding: 6px 13px;
+  font-size: 13px;
+}
+.layout-picker button.active {
+  background: #f2f2f2;
+  border-color: #f2f2f2;
+  color: #000;
+  font-weight: 600;
+}
+body.theme-light .layout-picker button { background: var(--panel); }
+
+/* Buttons = GameDay .btn / .btn.primary */
+.btn-secondary, .btn-danger, .btn-primary, .setup-bar button, .pinned-teams button, .add-game-form button {
+  border-radius: 10px;
+  padding: 9px 14px;
+  font-size: 14px;
+}
+.btn-secondary, .setup-bar button { background: #141414; border-color: var(--gd-line2); }
+.btn-secondary:active, .btn-danger:active { background: #1d1d1d; }
+.btn-danger { background: #141414; border-color: #5a1f1f; color: #ff8a8a; }
+.btn-primary { background: #f2f2f2; border-color: #f2f2f2; color: #000; font-weight: 600; }
+body.theme-light .btn-secondary, body.theme-light .btn-danger { background: var(--panel); }
+
+select, .preset-tools select, .monitor-picker select, .pinned-teams input, .add-game-form input,
+.setup-bar input, .custom-layout-save-bar input, .add-custom-service-form input {
+  border-radius: 10px;
+  border-color: var(--gd-line2);
+  background: #0e0e0e;
+}
+body.theme-light select, body.theme-light input { background: var(--panel); }
+
+/* ---------- cards ---------- */
+.sidebar { background: var(--bg); }
+.game-card, .slot-card, .subscription-card, .subscription-option {
+  border-radius: 14px;
+  border-color: var(--hairline);
+}
+.game-card.selected, .slot-card.drag-over { border-color: #f2f2f2; }
+.slot-health { background: var(--live); }
+.game-card-meta .live { color: var(--danger); }
+
+/* ---------- ticker, modals, toasts ---------- */
+.ticker { background: var(--bg); }
+body.theme-light .ticker { background: var(--panel-raised); }
+.modal-backdrop { background: rgba(0, 0, 0, 0.82); }
+.subscriptions-modal, .layout-editor-modal, .day-planner-modal, .history-modal {
+  border-radius: 14px;
+  border-color: var(--hairline);
+}
+.toast { border-radius: 10px; background: #1a1a1a; border-color: #2a2a2a; }
+body.theme-light .toast { background: var(--panel); border-color: var(--hairline); }
+
+/* ---------- cloud pairing bar (GameDay /wall only) ---------- */
+body.cloud-mode .setup-bar { display: none; }
+
+.cloud-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: calc(var(--safe-t) + 10px) 16px 10px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--hairline);
+  font-size: 14px;
+}
+.cloud-device { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.cloud-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-muted); flex: none; }
+.cloud-bar--online .cloud-dot { background: var(--live); box-shadow: 0 0 0 3px rgba(62, 207, 110, 0.18); }
+.cloud-bar--offline .cloud-dot { background: var(--danger); }
+.cloud-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.cloud-status { color: var(--text-muted); font-size: 13px; white-space: nowrap; }
+.cloud-actions { display: flex; gap: 8px; }
+.cloud-actions .btn-secondary { padding: 7px 12px; font-size: 13px; }
+.cloud-hint, .cloud-error { flex-basis: 100%; margin: 0; font-size: 13px; line-height: 1.45; }
+.cloud-hint { color: var(--text-muted); }
+.cloud-error {
+  color: #ff9b9b;
+  background: #120707;
+  border: 1px solid #3a1b1b;
+  border-radius: 10px;
+  padding: 9px 12px;
+}
+.cloud-bar--pair { display: block; }
+.cloud-pair { display: flex; flex-wrap: wrap; gap: 10px 16px; align-items: center; justify-content: space-between; }
+.cloud-pair-text { display: flex; flex-direction: column; gap: 2px; min-width: 220px; flex: 1; }
+.cloud-pair-text span { color: var(--text-muted); font-size: 13px; }
+.cloud-pair-text em { color: var(--text); font-style: normal; }
+.cloud-pair-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.cloud-pair-form input {
+  background: #0e0e0e;
+  border: 1px solid var(--gd-line2);
+  border-radius: 10px;
+  color: var(--text);
+  padding: 10px 12px;
+  font-size: 16px; /* 16px stops iOS from zooming on focus */
+  outline: none;
+}
+.cloud-pair-form input:focus { border-color: #3a3a3a; }
+.cloud-pair-form input[data-cloud="code"] { width: 8.5em; letter-spacing: 0.12em; font-weight: 600; text-align: center; }
+.cloud-pair-form input[data-cloud="name"] { width: 11em; }
+.cloud-bar--pair .cloud-error { margin-top: 10px; }
+body.theme-light .cloud-bar, body.theme-light .cloud-pair-form input { background: var(--panel); }
+
+/* ---------- GameDay bottom tab bar (GameDay /wall only) ---------- */
+.gd-nav {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 20;
+  display: flex;
+  background: rgba(0, 0, 0, 0.95);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+  border-top: 1px solid var(--hairline);
+  padding-bottom: var(--safe-b);
+}
+.gd-nav a {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 9px 0 8px;
+  font-size: 10.5px;
+  color: #5c5c5c;
+  text-decoration: none;
+}
+.gd-nav a.on { color: var(--text); }
+.gd-nav svg { width: 22px; height: 22px; }
+body.has-gd-nav { padding-bottom: calc(58px + var(--safe-b)); }
+body.theme-light .gd-nav { background: rgba(243, 241, 236, 0.95); }
+body.theme-light .gd-nav a.on { color: var(--text); }
+
+/* ---------- phones ---------- */
+@media (max-width: 720px) {
+  .topbar { padding: 10px 12px; }
+  .topbar > * { flex-wrap: wrap; }
+  .slot-grid { padding: 12px; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+  .sidebar { padding: 12px; }
+  .clients-status { max-width: 100%; }
+  .cloud-pair-form { width: 100%; }
+  .cloud-pair-form input[data-cloud="code"] { flex: 1 1 7em; }
+  .cloud-pair-form input[data-cloud="name"] { flex: 1 1 9em; }
+  .cloud-pair-form button { flex: 1 1 100%; }
+}
+
+/* ---------- phone layout: GameDay-style single scrolling page ----------
+   Screens first (what's on the wall), games underneath, and every tool in one
+   swipeable chip row at the top, like GameDay's week chips. */
+@media (max-width: 720px) {
+  html, body { height: auto; min-height: 100%; }
+  body { display: block; }
+
+  .topbar {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    gap: 8px;
+    padding: 8px 16px;
+    top: 0;
+  }
+  .topbar::-webkit-scrollbar { display: none; }
+  .topbar > * { flex: none; }
+  .wordmark, .clients-status { display: none; }
+  .layout-picker { order: -1; margin: 0; width: auto; flex-wrap: nowrap; }
+  .layout-picker button { flex: none; }
+  .preset-tools, .topbar-actions, .monitor-picker { flex-wrap: nowrap; }
+  .topbar .btn-secondary, .topbar .btn-danger, .preset-tools select, .monitor-picker select {
+    padding: 7px 12px;
+    font-size: 13px;
+    white-space: nowrap;
+  }
+
+  .layout-root { display: flex; flex-direction: column; min-height: 0; }
+  .slot-grid {
+    order: 1;
+    overflow: visible;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+    padding: 12px 16px;
+    scroll-margin-top: 64px;
+  }
+  .slot-card { min-height: 104px; padding: 10px; }
+  .slot-controls { flex-wrap: wrap; gap: 6px; }
+  .slot-controls input[type="range"] { flex: 1 1 100%; }
+  .sidebar {
+    order: 2;
+    width: auto;
+    max-height: none;
+    overflow: visible;
+    border-right: 0;
+    border-bottom: 0;
+    border-top: 1px solid var(--hairline);
+    padding: 12px 16px;
+  }
+  .schedule-list { overflow: visible; }
+  .ticker { height: 30px; }
+}
+
+/* Toasts float above GameDay's tab bar instead of covering it. */
+body.has-gd-nav .toast-container { bottom: calc(70px + var(--safe-b)); }
+
+@media (max-width: 720px) {
+  /* Empty screens: just the label and the next kickoff; controls appear once a game is on. */
+  .slot-card:has(.slot-content.empty) { min-height: 0; }
+  .slot-card:has(.slot-content.empty) .slot-controls { display: none; }
+  .slot-content.empty { font-size: 13px; }
+  .toast-container { left: 12px; right: 12px; }
+}
+
+/* Screen card controls wrap instead of spilling past the card edge. */
+.slot-controls { flex-wrap: wrap; row-gap: 6px; }
+.slot-controls input[type="range"] { flex: 1 1 110px; min-width: 0; }
+.slot-controls button { border-radius: 8px; }

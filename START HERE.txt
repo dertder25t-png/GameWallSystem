@@ -1,3 +1,6 @@
+ALPHA (Sept 2026): read ALPHA-GUIDE.md first. It covers pairing your phone,
+the new GameDay Wall tab, and deploying it.
+
 START HERE
 ==========
 
