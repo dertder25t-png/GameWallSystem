@@ -7,7 +7,6 @@ rem in the tray. It also starts itself with Windows from now on (turn that off f
 rem tray icon), so on game day you just plug in the laptop and use your phone.
 
 set DISPLAY_DIST=dist\DisplayHost
-set CONTROL_DIST=dist\ControlServer
 
 where dotnet >nul 2>nul
 if %ERRORLEVEL% NEQ 0 (
@@ -32,9 +31,6 @@ if %ERRORLEVEL% NEQ 0 (
   pause
   exit /b 1
 )
-
-echo Building the optional offline remote...
-dotnet publish GameWallControlServer\GameWallControlServer.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o "%CONTROL_DIST%"
 
 echo.
 echo Starting GameWall in the tray...
