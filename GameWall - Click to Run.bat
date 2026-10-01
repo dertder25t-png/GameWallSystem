@@ -47,4 +47,6 @@ echo    gameday-cfb.vercel.app, tap Wall, and enter the code.
 echo  - From then on it starts with Windows and waits quietly in the tray.
 echo  - Tray icon menu: Show the wall, End session, Pair a phone, Quit.
 echo.
-pause
+echo This window closes by itself in a few seconds.
+timeout /t 6 /nobreak >nul
+exit /b 0

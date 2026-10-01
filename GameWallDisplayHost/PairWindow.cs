@@ -35,6 +35,7 @@ public sealed class PairWindow : Window
         ResizeMode = ResizeMode.NoResize;
         WindowStartupLocation = WindowStartupLocation.CenterScreen;
         Topmost = true;
+        StayOffTaskbar.Apply(this);
         Background = new SolidColorBrush(System.Windows.Media.Color.FromRgb(0, 0, 0));
 
         var font = new WpfFontFamily("Segoe UI");
