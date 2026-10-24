@@ -50,8 +50,7 @@ public partial class MainWindow : Window
     private readonly bool[] _parked = new bool[8];
     /// <summary>Slot was left blank on purpose after repeated GPU crashes, until the phone reloads it.</summary>
     private readonly bool[] _heldAfterGpuCrash = new bool[8];
-    private readonly DateTime[] _lastRecovery = new DateTime[8];
-    private readonly int[] _recoveryStreak = new int[8];
+    private readonly RecoveryBackoff[] _backoff = Enumerable.Range(0, 8).Select(_ => new RecoveryBackoff()).ToArray();
     private readonly List<DateTime> _gpuCrashes = new();
     private DateTime _lastGpuCrash = DateTime.MinValue;
     private int _gpuRecoveryGeneration;
@@ -851,21 +850,16 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Reloads a slot, but backs off if it keeps failing (10s, 20s, 40s … up to 5 min
-    /// between reloads) so a stream that can't play doesn't get restarted every few seconds.
+    /// Reloads a slot, but backs off if it keeps failing (see <see cref="RecoveryBackoff"/>)
+    /// so a stream that can't play doesn't get restarted every few seconds.
     /// </summary>
     private void ScheduleRecovery(int slotIndex)
     {
-        var now = DateTime.UtcNow;
-        if (now - _lastRecovery[slotIndex] > TimeSpan.FromMinutes(5)) _recoveryStreak[slotIndex] = 0;
-        var wait = TimeSpan.FromSeconds(Math.Min(300, 10 * Math.Pow(2, _recoveryStreak[slotIndex])));
-        if (now - _lastRecovery[slotIndex] < wait)
+        if (!_backoff[slotIndex].TryRecover(DateTime.UtcNow))
         {
             if (_slotHealth[slotIndex] != "stalled") _ = BroadcastHealthAsync(slotIndex, "stalled");
             return;
         }
-        _recoveryStreak[slotIndex]++;
-        _lastRecovery[slotIndex] = now;
         RecoverSlot(slotIndex);
     }
 
@@ -943,7 +937,6 @@ public partial class MainWindow : Window
                 continue;
             }
             kept++;
-            _lastRecovery[i] = DateTime.UtcNow;
             RecoverSlot(i);
             await Task.Delay(TimeSpan.FromSeconds(2));
             if (generation != _gpuRecoveryGeneration) return;
@@ -963,7 +956,7 @@ public partial class MainWindow : Window
     {
         _lastUrls[slotIndex] = string.IsNullOrWhiteSpace(url) ? null : url;
         _stallFailures[slotIndex] = 0;
-        _recoveryStreak[slotIndex] = 0;
+        _backoff[slotIndex].Reset();
         _heldAfterGpuCrash[slotIndex] = false; // a new load from the phone lifts the hold
 
         if (_lastUrls[slotIndex] is null)
@@ -1119,6 +1112,7 @@ public partial class MainWindow : Window
                 var checkOk = await probe;
                 if (!checkOk)
                 {
+                    _backoff[i].ReportUnhealthy();
                     _stallFailures[i]++;
                     if (_stallFailures[i] >= ReloadAfter)
                     {
@@ -1130,10 +1124,14 @@ public partial class MainWindow : Window
                         _ = BroadcastHealthAsync(i, "stalled");
                     }
                 }
-                else if (_stallFailures[i] > 0 || _slotHealth[i] != "ok")
+                else
                 {
-                    _stallFailures[i] = 0;
-                    _ = BroadcastHealthAsync(i, "ok");
+                    _backoff[i].ReportHealthy(DateTime.UtcNow);
+                    if (_stallFailures[i] > 0 || _slotHealth[i] != "ok")
+                    {
+                        _stallFailures[i] = 0;
+                        _ = BroadcastHealthAsync(i, "ok");
+                    }
                 }
             }
         }
