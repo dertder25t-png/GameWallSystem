@@ -54,6 +54,10 @@ public sealed class CloudBridge : IDisposable
     private bool _stateJoined;
     private Task? _runTask;
     private long _lastReceivedTicks;
+    private DateTime? _onlineSince;
+
+    /// <summary>A connection must stay up this long before the reconnect delay starts over.</summary>
+    private static readonly TimeSpan StableConnection = TimeSpan.FromMinutes(1);
 
     /// <summary>How often a Phoenix heartbeat is sent (Supabase replies to each one).</summary>
     public TimeSpan HeartbeatInterval { get; init; } = TimeSpan.FromSeconds(25);
@@ -210,11 +214,11 @@ public sealed class CloudBridge : IDisposable
         var attempt = 0;
         while (!ct.IsCancellationRequested)
         {
+            _onlineSince = null;
             try
             {
                 await EnsureRegisteredAsync(ct);
                 await ConnectAndListenAsync(ct);
-                attempt = 0;
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -226,6 +230,9 @@ public sealed class CloudBridge : IDisposable
             }
 
             if (ct.IsCancellationRequested) break;
+            // Only a connection that actually stayed up resets the delay. A server that
+            // accepts and drops us straight away (or a refused join) keeps backing off.
+            if (_onlineSince is { } since && DateTime.UtcNow - since >= StableConnection) attempt = 0;
             attempt++;
             var delay = TimeSpan.FromSeconds(Math.Min(30, Math.Pow(2, Math.Min(attempt, 5))));
             SetStatus(LinkState.Offline, $"Reconnecting in {delay.TotalSeconds:0}s");
@@ -295,6 +302,7 @@ public sealed class CloudBridge : IDisposable
                     }
                     if (cmdJoined && _stateJoined && State != LinkState.Online)
                     {
+                        _onlineSince = DateTime.UtcNow;
                         SetStatus(LinkState.Online, "Online");
                         if (ClientJoined is not null) _ = ClientJoined.Invoke();
                     }
