@@ -171,7 +171,7 @@
           ${slot.label ? `<span class="m-screen-t">${esc(title)}</span>` : `<span class="m-screen-plus">${ICON.plus}</span>`}
           <span class="m-screen-f">
             ${slot.muted && slot.label ? `<i class="m-muted">${ICON.mute}</i>` : ''}
-            ${health && health !== 'ok' ? '<i class="m-warn" title="Recovered">!</i>' : ''}
+            ${health && health !== 'ok' ? `<i class="m-warn" title="${health === 'stalled' ? 'Stalled: load it again' : 'Recovered'}">!</i>` : ''}
             ${slot.label && slot.network ? `<em>${esc(slot.network)}</em>` : ''}
           </span>
         </button>`;

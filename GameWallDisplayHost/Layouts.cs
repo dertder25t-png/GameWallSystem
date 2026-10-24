@@ -226,4 +226,32 @@ public static class Layouts
 
     public static IReadOnlyList<FractionalRect> GetFractionalRects(string layoutName) =>
         ByName(layoutName).FractionalPlacements;
+
+    /// <summary>
+    /// Makes custom rects from a remote safe to lay out: at most 8, finite, and inside the
+    /// wall. Without this, a width like 1e308 becomes an infinite WPF size (an exception on
+    /// every resize) and a merely huge one asks WebView2 for an enormous video surface.
+    /// A missing rect keeps its slot number but gets no area.
+    /// </summary>
+    public static CustomSlotRect[] SanitizeCustomRects(IEnumerable<CustomSlotRect?>? rects)
+    {
+        static double Unit(double v) => double.IsFinite(v) ? Math.Clamp(v, 0.0, 1.0) : 0.0;
+
+        return (rects ?? Array.Empty<CustomSlotRect?>())
+            .Take(8)
+            .Select(r =>
+            {
+                if (r is null) return new CustomSlotRect();
+                var x = Unit(r.X);
+                var y = Unit(r.Y);
+                return new CustomSlotRect
+                {
+                    X = x,
+                    Y = y,
+                    Width = Math.Min(Unit(r.Width), 1.0 - x),
+                    Height = Math.Min(Unit(r.Height), 1.0 - y),
+                };
+            })
+            .ToArray();
+    }
 }

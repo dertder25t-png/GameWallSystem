@@ -16,18 +16,21 @@ public partial class MainWindow : Window
 {
     private const int ListenPort = 5000;
 
-    // Sample public test-clip URLs used by "test mode" so you can check
-    // the grid/layout before kickoff without needing real game links.
+    // Public test clips used by "test mode" so you can check the grid/layout (and how the
+    // laptop copes with 8 HD videos) before kickoff without needing real game links.
+    // Blender Foundation films, 1080p, from Wikimedia Commons. (Google closed the old
+    // gtv-videos-bucket sample clips to anonymous access; they now return 403.)
+    private const string CommonsVideos = "https://upload.wikimedia.org/wikipedia/commons/transcoded/";
     private static readonly string[] TestUrls =
     {
-        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
-        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
-        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4",
-        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4",
-        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4",
-        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerMeltdowns.mp4",
-        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4",
+        CommonsVideos + "c/c0/Big_Buck_Bunny_4K.webm/Big_Buck_Bunny_4K.webm.1080p.vp9.webm",
+        CommonsVideos + "a/a2/Elephants_Dream_%282006%29.webm/Elephants_Dream_%282006%29.webm.1080p.vp9.webm",
+        CommonsVideos + "f/f1/Sintel_movie_4K.webm/Sintel_movie_4K.webm.1080p.vp9.webm",
+        CommonsVideos + "1/10/Tears_of_Steel_in_4k_-_Official_Blender_Foundation_release.webm/Tears_of_Steel_in_4k_-_Official_Blender_Foundation_release.webm.1080p.vp9.webm",
+        CommonsVideos + "c/c0/Big_Buck_Bunny_4K.webm/Big_Buck_Bunny_4K.webm.1080p.vp9.webm",
+        CommonsVideos + "a/a2/Elephants_Dream_%282006%29.webm/Elephants_Dream_%282006%29.webm.1080p.vp9.webm",
+        CommonsVideos + "f/f1/Sintel_movie_4K.webm/Sintel_movie_4K.webm.1080p.vp9.webm",
+        CommonsVideos + "1/10/Tears_of_Steel_in_4k_-_Official_Blender_Foundation_release.webm/Tears_of_Steel_in_4k_-_Official_Blender_Foundation_release.webm.1080p.vp9.webm",
     };
 
     private WebView2[] _slots = Array.Empty<WebView2>();
@@ -40,6 +43,37 @@ public partial class MainWindow : Window
     private readonly System.Windows.Threading.DispatcherTimer _watchdogTimer = new();
     private readonly int[] _stallFailures = new int[8];
     private readonly string[] _slotHealth = new string[8] { "ok", "ok", "ok", "ok", "ok", "ok", "ok", "ok" };
+
+    // ---- GPU / stability guards -------------------------------------------------------
+    // Every slot is a full Chromium video player sharing ONE GPU process, so the wall's
+    // biggest danger is piling work onto the graphics driver all at once. These fields
+    // keep that load down and stop recovery logic from hammering a driver that just fell over.
+
+    /// <summary>Slot has a URL but is off-screen in the current layout, so it's held on about:blank.</summary>
+    private readonly bool[] _parked = new bool[8];
+    /// <summary>Slot was left blank on purpose after repeated GPU crashes, until the phone reloads it.</summary>
+    private readonly bool[] _heldAfterGpuCrash = new bool[8];
+    private readonly RecoveryBackoff[] _backoff = Enumerable.Range(0, 8).Select(_ => new RecoveryBackoff()).ToArray();
+    private readonly List<DateTime> _gpuCrashes = new();
+    private DateTime _lastGpuCrash = DateTime.MinValue;
+    private int _gpuRecoveryGeneration;
+    private int _loadGeneration;
+    private bool _watchdogRunning;
+    /// <summary>The shared WebView2 browser process exited; every slot is dead until GameWall restarts.</summary>
+    private bool _videoEngineStopped;
+    private const string VideoEngineStoppedMessage =
+        "The video engine stopped. Quit GameWall from the tray icon and start it again.";
+
+    /// <summary>Gap between starting each stream when several load together.</summary>
+    private static readonly TimeSpan StaggerDelay = TimeSpan.FromMilliseconds(900);
+    /// <summary>Probe failures in a row before a slot counts as stalled / gets reloaded.</summary>
+    private const int StalledAfter = 2;
+    private const int ReloadAfter = 4;
+    /// <summary>GPU crashes within <see cref="GpuCrashWindow"/> before the wall sheds load.</summary>
+    private const int GpuCrashLimit = 3;
+    private static readonly TimeSpan GpuCrashWindow = TimeSpan.FromMinutes(10);
+    /// <summary>Screens still reloaded automatically once the GPU crash limit is hit.</summary>
+    private const int SlotsKeptAfterRepeatedGpuCrashes = 2;
 
     private readonly WallState _wallState = new()
     {
@@ -63,6 +97,9 @@ public partial class MainWindow : Window
     private PairWindow? _pairWindow;
     private int _pairedPhoneCount = -1;
     private readonly System.Windows.Threading.DispatcherTimer _pairCheckTimer = new() { Interval = TimeSpan.FromSeconds(60) };
+    /// <summary>Waits for a burst of display changes (a projector connecting) to settle.</summary>
+    private readonly System.Windows.Threading.DispatcherTimer _displaysSettledTimer = new() { Interval = TimeSpan.FromSeconds(1.5) };
+    private int _lastScreenCount = FormsScreen.AllScreens.Length;
     private readonly TaskCompletionSource _webViewsReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private bool _quitting;
     private bool _sessionActive;
@@ -144,6 +181,7 @@ public partial class MainWindow : Window
             lanRemoteEnabled: _settings.LanRemote,
             quit: () => Dispatcher.InvokeAsync(QuitApp));
 
+        _displaysSettledTimer.Tick += OnDisplaysSettled;
         Microsoft.Win32.SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
         UpdateStatusText();
 
@@ -178,7 +216,7 @@ public partial class MainWindow : Window
             SlotCanvas.SizeChanged += (_, _) => RenderCanvasSlots();
             ApplyLayout(_currentLayout);
 
-            _watchdogTimer.Interval = TimeSpan.FromSeconds(2.5);
+            _watchdogTimer.Interval = TimeSpan.FromSeconds(5);
             _watchdogTimer.Tick += WatchdogTimer_Tick;
             _watchdogTimer.Start();
 
@@ -198,6 +236,13 @@ public partial class MainWindow : Window
 
     private void UpdateStatusText()
     {
+        if (_videoEngineStopped)
+        {
+            // Keep saying so until GameWall restarts; nothing else on screen matters now.
+            StatusText.Text = VideoEngineStoppedMessage;
+            _tray?.SetStatus("Video engine stopped: quit and restart");
+            return;
+        }
         var cloud = _bridge is null ? "Cloud: starting" : $"Cloud: {_bridge.StatusMessage}";
         var name = _settings.DeviceName;
         StatusText.Text = $"{name} · {cloud} · {_localListenText}";
@@ -362,15 +407,41 @@ public partial class MainWindow : Window
             "Wi-Fi remote", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
+    /// <summary>
+    /// Arrives on a system thread, often several times in a row while a projector or TV
+    /// negotiates its mode. Restart a short timer so the work below happens once per burst.
+    /// </summary>
     private void OnDisplaySettingsChanged(object? sender, EventArgs e)
     {
-        Dispatcher.InvokeAsync(async () =>
+        Dispatcher.InvokeAsync(() =>
         {
-            await SendDisplayStatusAsync();
-            var count = FormsScreen.AllScreens.Length;
-            if (count > 1 && !_sessionActive)
-                _tray?.Notify("Display connected", $"{count} screens found. Start the wall from GameDay on your phone.");
+            _displaysSettledTimer.Stop();
+            _displaysSettledTimer.Start();
         });
+    }
+
+    private async void OnDisplaysSettled(object? sender, EventArgs e)
+    {
+        _displaysSettledTimer.Stop();
+        try
+        {
+            var screens = FormsScreen.AllScreens;
+            // The wall's monitor went away (projector unplugged): put the wall back on the
+            // main screen, full size, rather than wherever Windows dropped it.
+            if (_selectedMonitorIndex >= screens.Length && IsVisible)
+                MoveToMonitor(GetPrimaryMonitorIndex(screens));
+
+            await SendDisplayStatusAsync();
+
+            // Toast only when a screen was added, not on every resolution change.
+            if (screens.Length > 1 && screens.Length > _lastScreenCount && !_sessionActive)
+                _tray?.Notify("Display connected", $"{screens.Length} screens found. Start the wall from GameDay on your phone.");
+            _lastScreenCount = screens.Length;
+        }
+        catch (Exception ex)
+        {
+            App.LogError("Display change", ex);
+        }
     }
 
     /// <summary>Sends a message to every local remote and every paired phone.</summary>
@@ -402,8 +473,20 @@ public partial class MainWindow : Window
             slot.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
             slot.CoreWebView2.Settings.AreDevToolsEnabled = false;
             var slotIndex = index;
-            slot.CoreWebView2.ProcessFailed += (_, _) => Dispatcher.Invoke(() => RecoverSlot(slotIndex));
-            slot.CoreWebView2.NavigationCompleted += (_, _) => _ = BroadcastHealthAsync(slotIndex, "ok");
+            // InvokeAsync, not Invoke: a GPU crash fires this on all 8 slots at once, and
+            // a blocking Invoke from each of them is how the old handler froze the UI.
+            slot.CoreWebView2.ProcessFailed += (_, args) =>
+            {
+                var kind = args.ProcessFailedKind;
+                Dispatcher.InvokeAsync(() => OnProcessFailed(slotIndex, kind));
+            };
+            slot.CoreWebView2.NavigationCompleted += (_, _) =>
+            {
+                // A slot held blank after repeated GPU crashes stays "stalled" on the phone
+                // until someone reloads it; its about:blank finishing loading isn't recovery.
+                if (_heldAfterGpuCrash[slotIndex]) return;
+                _ = BroadcastHealthAsync(slotIndex, "ok");
+            };
             slot.CoreWebView2.Navigate("about:blank");
         }
     }
@@ -460,7 +543,11 @@ public partial class MainWindow : Window
     }
 
     /// <summary>Arranges the slots per the fractional coordinates of the given preset layout.</summary>
-    private void ApplyLayout(LayoutDefinition layout, string? layoutName = null)
+    /// <param name="resumeParked">
+    /// False when the caller is about to load new URLs with <see cref="LoadSlotsStaggered"/>:
+    /// slots coming back into view then wait for their turn instead of restarting the old stream.
+    /// </param>
+    private void ApplyLayout(LayoutDefinition layout, string? layoutName = null, bool resumeParked = true)
     {
         _isCustomLayout = false;
         _currentCustomRects = null;
@@ -469,11 +556,13 @@ public partial class MainWindow : Window
         _wallState.Layout = layoutName ?? GetLayoutName(layout);
         _wallState.CustomRects = null;
         RenderCanvasSlots();
+        UpdateParking(resumeParked);
     }
 
     /// <summary>Arranges the slots per arbitrary normalized fractional coordinates (custom layout).</summary>
-    private void ApplyCustomLayout(CustomSlotRect[] customRects)
+    private void ApplyCustomLayout(CustomSlotRect[] customRects, bool resumeParked = true)
     {
+        customRects = Layouts.SanitizeCustomRects(customRects);
         _isCustomLayout = true;
         _currentCustomRects = customRects;
         var list = new List<FractionalRect>();
@@ -486,25 +575,35 @@ public partial class MainWindow : Window
         _wallState.Layout = "custom";
         _wallState.CustomRects = customRects;
         RenderCanvasSlots();
+        UpdateParking(resumeParked);
     }
 
     private void RestoreWallStateSnapshot(WallState snapshot)
     {
-        if (snapshot.Layout.Equals("custom", StringComparison.OrdinalIgnoreCase) && snapshot.CustomRects is { Length: > 0 })
+        // When the snapshot brings its own URLs, the staggered load below starts every
+        // shown slot; letting the layout change resume parked slots first would briefly
+        // restart their old streams.
+        var resumeParked = snapshot.Slots is null;
+        var layoutName = string.IsNullOrWhiteSpace(snapshot.Layout) ? "4" : snapshot.Layout;
+        if (layoutName.Equals("custom", StringComparison.OrdinalIgnoreCase) && snapshot.CustomRects is { Length: > 0 })
         {
-            ApplyCustomLayout(snapshot.CustomRects);
+            ApplyCustomLayout(snapshot.CustomRects, resumeParked);
         }
         else
         {
-            ApplyLayout(Layouts.ByName(snapshot.Layout), snapshot.Layout);
+            ApplyLayout(Layouts.ByName(layoutName), layoutName, resumeParked);
         }
 
         if (snapshot.Slots is not null)
         {
+            // Slots the snapshot doesn't mention keep whatever they're showing.
+            var urls = (string?[])_lastUrls.Clone();
             for (int i = 0; i < Math.Min(_slots.Length, snapshot.Slots.Length); i++)
             {
                 var target = snapshot.Slots[i];
+                if (target is null) continue;
                 var current = _wallState.Slots[i];
+                var volume = double.IsFinite(target.Volume) ? Math.Clamp(target.Volume, 0.0, 1.0) : 1.0;
 
                 current.Label = target.Label;
                 current.Network = target.Network;
@@ -514,24 +613,17 @@ public partial class MainWindow : Window
                 current.LastNetwork = target.LastNetwork;
                 current.LastGameJson = target.LastGameJson;
                 current.Muted = target.Muted;
-                current.Volume = target.Volume;
+                current.Volume = volume;
 
                 SetMute(i, target.Muted);
-                _ = SetVolumeAsync(i, target.Volume);
+                _ = SetVolumeAsync(i, volume);
 
-                if (!string.IsNullOrWhiteSpace(target.Url))
-                {
-                    _lastUrls[i] = target.Url;
-                    current.Url = target.Url;
-                    _slots[i].CoreWebView2?.Navigate(target.Url);
-                }
-                else
-                {
-                    _lastUrls[i] = null;
-                    current.Url = null;
-                    _slots[i].CoreWebView2?.Navigate("about:blank");
-                }
+                urls[i] = CommandRules.IsPlayableUrl(target.Url) ? target.Url : null;
+                current.Url = urls[i];
             }
+            // Starting up to 8 streams in the same instant is the heaviest thing the
+            // wall ever does to the GPU, so they start one after another instead.
+            LoadSlotsStaggered(urls);
         }
 
         _wallState.Revision++;
@@ -569,8 +661,13 @@ public partial class MainWindow : Window
                 case "navigate":
                     if (cmd.Slot is int ns && ns is >= 0 and < 8 && cmd.Url is not null)
                     {
-                        _lastUrls[ns] = cmd.Url;
-                        _slots[ns].CoreWebView2?.Navigate(cmd.Url);
+                        if (!CommandRules.IsPlayableUrl(cmd.Url))
+                        {
+                            StatusText.Text = $"Screen {ns + 1}: ignored a link that isn't a web address.";
+                            break;
+                        }
+
+                        LoadSlot(ns, cmd.Url);
 
                         var s = _wallState.Slots[ns];
                         s.Url = cmd.Url;
@@ -611,9 +708,7 @@ public partial class MainWindow : Window
                 case "close":
                     if (cmd.Slot is int cs && cs is >= 0 and < 8)
                     {
-                        _lastUrls[cs] = null;
-                        _stallFailures[cs] = 0;
-                        _slots[cs].CoreWebView2?.Navigate("about:blank");
+                        LoadSlot(cs, null);
 
                         var s = _wallState.Slots[cs];
                         s.Url = null;
@@ -631,9 +726,7 @@ public partial class MainWindow : Window
                 case "clear":
                     if (cmd.Slot is int clrS && clrS is >= 0 and < 8)
                     {
-                        _lastUrls[clrS] = null;
-                        _stallFailures[clrS] = 0;
-                        _slots[clrS].CoreWebView2?.Navigate("about:blank");
+                        LoadSlot(clrS, null);
 
                         var s = _wallState.Slots[clrS];
                         s.Url = null;
@@ -724,11 +817,16 @@ public partial class MainWindow : Window
 
     private void CloseAllSlots()
     {
+        _loadGeneration++; // cancels any staggered load still in progress
+        _gpuRecoveryGeneration++; // and any GPU-crash recovery still bringing screens back
+        if (!_videoEngineStopped)
+        {
+            StatusText.Foreground = System.Windows.Media.Brushes.White;
+            UpdateStatusText();
+        }
         for (var s = 0; s < _slots.Length; s++)
         {
-            _lastUrls[s] = null;
-            _stallFailures[s] = 0;
-            _slots[s].CoreWebView2?.Navigate("about:blank");
+            LoadSlot(s, null);
             _slotHealth[s] = "ok";
 
             var slotState = _wallState.Slots[s];
@@ -742,14 +840,21 @@ public partial class MainWindow : Window
     /// <summary>Flashes this laptop's name on the wall so you know which one you're controlling.</summary>
     private async void ShowIdentify(string? from)
     {
-        StatusOverlay.Visibility = Visibility.Visible;
-        var before = StatusText.Text;
-        StatusText.Text = $"This is {_settings.DeviceName}" + (string.IsNullOrWhiteSpace(from) ? "" : $" (asked by {from})");
-        StatusText.FontSize = 28;
-        await Task.Delay(4000);
-        StatusText.FontSize = 13;
-        StatusText.Text = before;
-        UpdateStatusText();
+        try
+        {
+            StatusOverlay.Visibility = Visibility.Visible;
+            var before = StatusText.Text;
+            StatusText.Text = $"This is {_settings.DeviceName}" + (string.IsNullOrWhiteSpace(from) ? "" : $" (asked by {from})");
+            StatusText.FontSize = 28;
+            await Task.Delay(4000);
+            StatusText.FontSize = 13;
+            StatusText.Text = before;
+            UpdateStatusText();
+        }
+        catch (Exception ex)
+        {
+            App.LogError("ShowIdentify", ex);
+        }
     }
 
     private void MoveToMonitor(int monitorIndex)
@@ -804,11 +909,261 @@ public partial class MainWindow : Window
         var core = _slots[slotIndex].CoreWebView2;
         if (core is null) return;
         _stallFailures[slotIndex] = 0;
+        var url = _lastUrls[slotIndex];
+        // Nothing to bring back, or the slot is deliberately blank right now.
+        if (string.IsNullOrWhiteSpace(url) || _parked[slotIndex] || _heldAfterGpuCrash[slotIndex]) return;
         _ = BroadcastHealthAsync(slotIndex, "recovered");
-        if (!string.IsNullOrWhiteSpace(_lastUrls[slotIndex]))
-            core.Navigate(_lastUrls[slotIndex]!);
+        SafeNavigate(slotIndex, url);
+    }
+
+    /// <summary>
+    /// Reloads a slot, but backs off if it keeps failing (see <see cref="RecoveryBackoff"/>)
+    /// so a stream that can't play doesn't get restarted every few seconds.
+    /// </summary>
+    private void ScheduleRecovery(int slotIndex)
+    {
+        if (!_backoff[slotIndex].TryRecover(DateTime.UtcNow))
+        {
+            if (_slotHealth[slotIndex] != "stalled") _ = BroadcastHealthAsync(slotIndex, "stalled");
+            return;
+        }
+        RecoverSlot(slotIndex);
+    }
+
+    private void OnProcessFailed(int slotIndex, CoreWebView2ProcessFailedKind kind)
+    {
+        // Nothing can be reloaded once the browser itself is gone.
+        if (_videoEngineStopped) return;
+        switch (kind)
+        {
+            case CoreWebView2ProcessFailedKind.GpuProcessExited:
+                OnGpuProcessExited();
+                break;
+
+            case CoreWebView2ProcessFailedKind.RenderProcessExited:
+            case CoreWebView2ProcessFailedKind.RenderProcessUnresponsive:
+            case CoreWebView2ProcessFailedKind.FrameRenderProcessExited:
+                ScheduleRecovery(slotIndex);
+                break;
+
+            case CoreWebView2ProcessFailedKind.BrowserProcessExited:
+                // The shared browser is gone for every slot (this event arrives once per
+                // slot). It can't be revived in place, and the browsers are only created
+                // once per run, so ending and restarting the session doesn't help either.
+                _videoEngineStopped = true;
+                _gpuRecoveryGeneration++;
+                _loadGeneration++;
+                StatusText.Text = VideoEngineStoppedMessage;
+                _tray?.SetStatus("Video engine stopped: quit and restart");
+                StatusText.Foreground = System.Windows.Media.Brushes.OrangeRed;
+                StatusOverlay.Visibility = Visibility.Visible;
+                _tray?.Notify("GameWall video engine stopped", "Quit GameWall from the tray icon and start it again.");
+                for (var i = 0; i < _slots.Length; i++)
+                    if (_lastUrls[i] is not null) _ = BroadcastHealthAsync(i, "stalled");
+                break;
+
+            default:
+                // Utility / sandbox helper processes restart on their own; reloading
+                // the video for them only adds load.
+                break;
+        }
+    }
+
+    /// <summary>
+    /// The shared GPU process died (driver reset, out of video memory, etc.). The old
+    /// code reloaded all 8 streams that same instant, which is the exact load that
+    /// knocked the driver over, and often crashed it again. Now: wait for the driver
+    /// to settle, bring screens back one at a time, and shed load if it keeps happening.
+    /// </summary>
+    private void OnGpuProcessExited()
+    {
+        var now = DateTime.UtcNow;
+        // One GPU crash is reported once per slot; treat that burst as a single event.
+        if (now - _lastGpuCrash < TimeSpan.FromSeconds(5)) return;
+        _lastGpuCrash = now;
+        _gpuCrashes.Add(now);
+        _gpuCrashes.RemoveAll(t => now - t > GpuCrashWindow);
+        _ = RecoverAfterGpuCrashAsync(_gpuCrashes.Count);
+    }
+
+    private async Task RecoverAfterGpuCrashAsync(int recentCrashes)
+    {
+        var generation = ++_gpuRecoveryGeneration;
+        var shedLoad = recentCrashes >= GpuCrashLimit;
+
+        StatusOverlay.Visibility = Visibility.Visible;
+        StatusText.Foreground = System.Windows.Media.Brushes.Orange;
+        StatusText.Text = shedLoad
+            ? $"Graphics driver crashed {recentCrashes} times in {GpuCrashWindow.TotalMinutes:0} min. Bringing back {SlotsKeptAfterRepeatedGpuCrashes} screens only; reload the others from your phone."
+            : "Graphics driver reset. Bringing screens back one at a time…";
+
+        await Task.Delay(TimeSpan.FromSeconds(4));
+        if (generation != _gpuRecoveryGeneration) return;
+
+        var kept = 0;
+        for (var i = 0; i < _slots.Length; i++)
+        {
+            if (string.IsNullOrWhiteSpace(_lastUrls[i]) || _parked[i] || _heldAfterGpuCrash[i]) continue;
+            if (shedLoad && kept >= SlotsKeptAfterRepeatedGpuCrashes)
+            {
+                _heldAfterGpuCrash[i] = true;
+                SafeNavigate(i, "about:blank");
+                SetMemoryLow(i, true);
+                _ = BroadcastHealthAsync(i, "stalled");
+                continue;
+            }
+            kept++;
+            RecoverSlot(i);
+            await Task.Delay(TimeSpan.FromSeconds(2));
+            if (generation != _gpuRecoveryGeneration) return;
+        }
+
+        StatusText.Foreground = System.Windows.Media.Brushes.White;
+        UpdateStatusText();
+    }
+
+    private bool IsSlotShown(int slotIndex) => slotIndex < _currentFractionalRects.Length;
+
+    /// <summary>
+    /// Points a slot at a URL (or clears it with null). If the slot is off-screen in the
+    /// current layout, the URL is remembered but nothing plays until the slot is shown.
+    /// </summary>
+    private void LoadSlot(int slotIndex, string? url)
+    {
+        _lastUrls[slotIndex] = string.IsNullOrWhiteSpace(url) ? null : url;
+        _stallFailures[slotIndex] = 0;
+        _backoff[slotIndex].Reset();
+        _heldAfterGpuCrash[slotIndex] = false; // a new load from the phone lifts the hold
+
+        if (_videoEngineStopped)
+        {
+            // Nothing can play until GameWall restarts: tell the phone instead of showing "ok".
+            if (_lastUrls[slotIndex] is not null) _ = BroadcastHealthAsync(slotIndex, "stalled");
+            return;
+        }
+
+        if (_lastUrls[slotIndex] is null)
+        {
+            _parked[slotIndex] = false;
+            SafeNavigate(slotIndex, "about:blank");
+            SetMemoryLow(slotIndex, true);
+        }
+        else if (!IsSlotShown(slotIndex))
+        {
+            if (!_parked[slotIndex]) SafeNavigate(slotIndex, "about:blank");
+            _parked[slotIndex] = true;
+            SetMemoryLow(slotIndex, true);
+        }
         else
-            core.Reload();
+        {
+            _parked[slotIndex] = false;
+            SetMemoryLow(slotIndex, false);
+            SafeNavigate(slotIndex, _lastUrls[slotIndex]!);
+        }
+    }
+
+    /// <summary>Loads several slots one after another instead of all in the same instant.</summary>
+    private async void LoadSlotsStaggered(string?[] urls)
+    {
+        try
+        {
+            var generation = ++_loadGeneration;
+
+            // Clear or park everything first so nothing from the old wall keeps decoding.
+            for (var i = 0; i < _slots.Length; i++)
+            {
+                if (urls[i] is null) LoadSlot(i, null);
+                else if (!IsSlotShown(i)) LoadSlot(i, urls[i]);
+                else _lastUrls[i] = urls[i];
+            }
+
+            var first = true;
+            for (var i = 0; i < _slots.Length; i++)
+            {
+                if (urls[i] is null || !IsSlotShown(i)) continue;
+                if (!first) await Task.Delay(StaggerDelay);
+                first = false;
+                // A newer staggered load, closeAll or endSession took over: stop here.
+                if (generation != _loadGeneration) return;
+                // A newer command took over this one slot meanwhile.
+                if (_lastUrls[i] != urls[i]) continue;
+                LoadSlot(i, urls[i]);
+            }
+        }
+        catch (Exception ex)
+        {
+            App.LogError("LoadSlotsStaggered", ex);
+        }
+    }
+
+    /// <summary>
+    /// Slots outside the current layout are collapsed, but a collapsed WebView2 keeps
+    /// decoding its video (and playing its audio) in the background. Park those on
+    /// about:blank and bring them back when the layout shows them again.
+    /// </summary>
+    private void UpdateParking(bool resumeParked = true)
+    {
+        var restoreDelay = TimeSpan.Zero;
+        for (var i = 0; i < _slots.Length; i++)
+        {
+            var shown = IsSlotShown(i);
+            if (!shown && !_parked[i] && _lastUrls[i] is not null)
+            {
+                _parked[i] = true;
+                _stallFailures[i] = 0;
+                SafeNavigate(i, "about:blank");
+                SetMemoryLow(i, true);
+            }
+            else if (shown && _parked[i])
+            {
+                _parked[i] = false;
+                var url = _lastUrls[i];
+                if (!resumeParked || url is null || _heldAfterGpuCrash[i]) continue;
+                SetMemoryLow(i, false);
+                _ = UnparkAfterAsync(i, url, restoreDelay);
+                restoreDelay += StaggerDelay;
+            }
+        }
+    }
+
+    private async Task UnparkAfterAsync(int slotIndex, string url, TimeSpan delay)
+    {
+        var generation = _loadGeneration;
+        if (delay > TimeSpan.Zero) await Task.Delay(delay);
+        if (generation != _loadGeneration || _parked[slotIndex] || _lastUrls[slotIndex] != url) return;
+        SafeNavigate(slotIndex, url);
+    }
+
+    private void SafeNavigate(int slotIndex, string url)
+    {
+        // Calls into a dead browser only throw, and would replace the "video engine
+        // stopped" message with a less useful one.
+        if (_videoEngineStopped) return;
+        try
+        {
+            _slots[slotIndex].CoreWebView2?.Navigate(url);
+        }
+        catch (Exception ex)
+        {
+            StatusText.Text = $"Screen {slotIndex + 1} couldn't load: {ex.Message}";
+        }
+    }
+
+    /// <summary>Tells WebView2 an idle slot can give back memory (no-op on older runtimes).</summary>
+    private void SetMemoryLow(int slotIndex, bool low)
+    {
+        try
+        {
+            var core = _slots[slotIndex].CoreWebView2;
+            if (core is null) return;
+            core.MemoryUsageTargetLevel = low
+                ? CoreWebView2MemoryUsageTargetLevel.Low
+                : CoreWebView2MemoryUsageTargetLevel.Normal;
+        }
+        catch
+        {
+            // Older WebView2 runtime without this API: nothing to do.
+        }
     }
 
     private Task BroadcastHealthAsync(int slotIndex, string status)
@@ -824,54 +1179,78 @@ public partial class MainWindow : Window
 
     private async void WatchdogTimer_Tick(object? sender, EventArgs e)
     {
-        for (var i = 0; i < _slots.Length; i++)
+        // The old tick awaited up to 1.5 s per slot one after another (12 s for 8 slots)
+        // while the timer kept firing every 2.5 s, so ticks stacked up and could reload
+        // the same slot several times over. One pass at a time now, all slots in parallel.
+        if (_watchdogRunning || !IsVisible || _videoEngineStopped) return;
+        _watchdogRunning = true;
+        try
         {
-            var url = _lastUrls[i];
-            if (string.IsNullOrWhiteSpace(url) || url == "about:blank")
+            var probes = new List<(int Slot, string Url, Task<bool> Ok)>();
+            for (var i = 0; i < _slots.Length; i++)
             {
-                _stallFailures[i] = 0;
-                continue;
-            }
-
-            var core = _slots[i].CoreWebView2;
-            if (core is null) continue;
-
-            bool checkOk = false;
-            try
-            {
-                var evalTask = core.ExecuteScriptAsync("document.readyState");
-                var completed = await Task.WhenAny(evalTask, Task.Delay(1500));
-                if (completed == evalTask && evalTask.Result is not null)
-                {
-                    checkOk = true;
-                }
-            }
-            catch
-            {
-                checkOk = false;
-            }
-
-            if (!checkOk)
-            {
-                _stallFailures[i]++;
-                if (_stallFailures[i] >= 5)
+                var url = _lastUrls[i];
+                if (string.IsNullOrWhiteSpace(url) || url == "about:blank" || _parked[i] || _heldAfterGpuCrash[i])
                 {
                     _stallFailures[i] = 0;
-                    RecoverSlot(i);
+                    continue;
                 }
-                else if (_stallFailures[i] >= 3 && _slotHealth[i] != "stalled")
-                {
-                    _ = BroadcastHealthAsync(i, "stalled");
-                }
+                var core = _slots[i].CoreWebView2;
+                if (core is null) continue;
+                probes.Add((i, url, ProbeAsync(core)));
             }
-            else
+
+            foreach (var (i, probedUrl, probe) in probes)
             {
-                if (_stallFailures[i] > 0 || _slotHealth[i] != "ok")
+                var checkOk = await probe;
+                // The slot was closed, parked, held or given a new stream while we waited.
+                if (_lastUrls[i] != probedUrl || _parked[i] || _heldAfterGpuCrash[i]) continue;
+                if (!checkOk)
                 {
-                    _stallFailures[i] = 0;
-                    _ = BroadcastHealthAsync(i, "ok");
+                    _backoff[i].ReportUnhealthy();
+                    _stallFailures[i]++;
+                    if (_stallFailures[i] >= ReloadAfter)
+                    {
+                        _stallFailures[i] = 0;
+                        ScheduleRecovery(i);
+                    }
+                    else if (_stallFailures[i] >= StalledAfter && _slotHealth[i] != "stalled")
+                    {
+                        _ = BroadcastHealthAsync(i, "stalled");
+                    }
+                }
+                else
+                {
+                    _backoff[i].ReportHealthy(DateTime.UtcNow);
+                    if (_stallFailures[i] > 0 || _slotHealth[i] != "ok")
+                    {
+                        _stallFailures[i] = 0;
+                        _ = BroadcastHealthAsync(i, "ok");
+                    }
                 }
             }
+        }
+        catch (Exception ex)
+        {
+            App.LogError("Watchdog", ex);
+        }
+        finally
+        {
+            _watchdogRunning = false;
+        }
+    }
+
+    private static async Task<bool> ProbeAsync(CoreWebView2 core)
+    {
+        try
+        {
+            var evalTask = core.ExecuteScriptAsync("document.readyState");
+            var completed = await Task.WhenAny(evalTask, Task.Delay(1500));
+            return completed == evalTask && await evalTask is not null;
+        }
+        catch
+        {
+            return false;
         }
     }
 
@@ -904,11 +1283,10 @@ public partial class MainWindow : Window
 
     private void RunTestMode()
     {
-        ApplyLayout(Layouts.EightUp);
+        ApplyLayout(Layouts.EightUp, resumeParked: false);
         _wallState.Revision++;
         _ = BroadcastWallStateAsync();
-        for (int i = 0; i < TestUrls.Length; i++)
-            _slots[i].CoreWebView2?.Navigate(TestUrls[i]);
+        LoadSlotsStaggered(TestUrls.Select(u => (string?)u).ToArray());
     }
 
     private void MainWindow_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
@@ -956,6 +1334,8 @@ public partial class MainWindow : Window
     protected override void OnClosed(EventArgs e)
     {
         _watchdogTimer.Stop();
+        _displaysSettledTimer.Stop();
+        _pairCheckTimer.Stop();
         _server?.Stop();
         _bridge?.Dispose();
         _tray?.Dispose();

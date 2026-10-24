@@ -47,6 +47,17 @@ public sealed class SlotCommand
     public WallState? Snapshot { get; set; }
 }
 
+public static class CommandRules
+{
+    /// <summary>
+    /// Screens only ever show web pages. Anything else (file:, javascript:, data:, ms-settings:
+    /// and so on) from a remote is refused rather than handed to the browser.
+    /// </summary>
+    public static bool IsPlayableUrl(string? url) =>
+        Uri.TryCreate(url, UriKind.Absolute, out var uri)
+        && (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
+}
+
 public sealed class CustomSlotRect
 {
     public double X { get; set; }
