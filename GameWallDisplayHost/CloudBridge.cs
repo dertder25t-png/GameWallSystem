@@ -53,6 +53,17 @@ public sealed class CloudBridge : IDisposable
     private string? _stateJoinRef;
     private bool _stateJoined;
     private Task? _runTask;
+    private long _lastReceivedTicks;
+
+    /// <summary>How often a Phoenix heartbeat is sent (Supabase replies to each one).</summary>
+    public TimeSpan HeartbeatInterval { get; init; } = TimeSpan.FromSeconds(25);
+
+    /// <summary>
+    /// With nothing at all received for this long, the link is treated as dead even if
+    /// Windows still thinks the socket is open (after sleep, or a Wi-Fi change). .NET 8's
+    /// keep-alive pings don't notice a peer that stopped answering.
+    /// </summary>
+    public TimeSpan SilenceLimit { get; init; } = TimeSpan.FromSeconds(60);
 
     public event Action<SlotCommand>? CommandReceived;
     /// <summary>A phone just paired (argument: its name).</summary>
@@ -231,6 +242,7 @@ public sealed class CloudBridge : IDisposable
         _socket = socket;
         _stateJoined = false;
         await socket.ConnectAsync(new Uri(_wsUrl()), ct);
+        Volatile.Write(ref _lastReceivedTicks, DateTime.UtcNow.Ticks);
 
         var cmdTopic = "realtime:" + _settings.CommandTopic;
         var stateTopic = "realtime:" + _settings.StateTopic;
@@ -240,7 +252,7 @@ public sealed class CloudBridge : IDisposable
         await SendFrameAsync(new { topic = stateTopic, @event = "phx_join", payload = JoinPayload("agent"), @ref = _stateJoinRef, join_ref = _stateJoinRef }, ct);
 
         using var heartbeatCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        var heartbeat = HeartbeatLoopAsync(heartbeatCts.Token);
+        var heartbeat = HeartbeatLoopAsync(socket, heartbeatCts.Token);
         var cmdJoined = false;
         try
         {
@@ -255,6 +267,7 @@ public sealed class CloudBridge : IDisposable
                     if (result.MessageType == WebSocketMessageType.Close) return;
                     message.Write(buffer, 0, result.Count);
                 } while (!result.EndOfMessage);
+                Volatile.Write(ref _lastReceivedTicks, DateTime.UtcNow.Ticks);
 
                 JsonObject? frame;
                 try { frame = JsonNode.Parse(message.ToArray()) as JsonObject; }
@@ -318,12 +331,32 @@ public sealed class CloudBridge : IDisposable
         },
     };
 
-    private async Task HeartbeatLoopAsync(CancellationToken ct)
+    private async Task HeartbeatLoopAsync(ClientWebSocket socket, CancellationToken ct)
     {
-        while (!ct.IsCancellationRequested)
+        try
         {
-            await Task.Delay(TimeSpan.FromSeconds(25), ct);
-            await SendFrameAsync(new { topic = "phoenix", @event = "heartbeat", payload = new { }, @ref = NextRef() }, ct);
+            while (!ct.IsCancellationRequested)
+            {
+                await Task.Delay(HeartbeatInterval, ct);
+                var silentFor = DateTime.UtcNow - new DateTime(Volatile.Read(ref _lastReceivedTicks), DateTimeKind.Utc);
+                if (silentFor > SilenceLimit)
+                {
+                    // Ends the pending receive, so the run loop reconnects.
+                    socket.Abort();
+                    return;
+                }
+                await SendFrameAsync(new { topic = "phoenix", @event = "heartbeat", payload = new { }, @ref = NextRef() }, ct);
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // Connection ended normally.
+        }
+        catch
+        {
+            // A heartbeat that can't be sent means the link is gone; make the receive loop
+            // notice now rather than whenever TCP gives up.
+            try { socket.Abort(); } catch { }
         }
     }
 
