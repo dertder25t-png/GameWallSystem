@@ -520,6 +520,7 @@ public partial class MainWindow : Window
     /// <summary>Arranges the slots per arbitrary normalized fractional coordinates (custom layout).</summary>
     private void ApplyCustomLayout(CustomSlotRect[] customRects, bool resumeParked = true)
     {
+        customRects = Layouts.SanitizeCustomRects(customRects);
         _isCustomLayout = true;
         _currentCustomRects = customRects;
         var list = new List<FractionalRect>();
@@ -541,13 +542,14 @@ public partial class MainWindow : Window
         // shown slot; letting the layout change resume parked slots first would briefly
         // restart their old streams.
         var resumeParked = snapshot.Slots is null;
-        if (snapshot.Layout.Equals("custom", StringComparison.OrdinalIgnoreCase) && snapshot.CustomRects is { Length: > 0 })
+        var layoutName = string.IsNullOrWhiteSpace(snapshot.Layout) ? "4" : snapshot.Layout;
+        if (layoutName.Equals("custom", StringComparison.OrdinalIgnoreCase) && snapshot.CustomRects is { Length: > 0 })
         {
             ApplyCustomLayout(snapshot.CustomRects, resumeParked);
         }
         else
         {
-            ApplyLayout(Layouts.ByName(snapshot.Layout), snapshot.Layout, resumeParked);
+            ApplyLayout(Layouts.ByName(layoutName), layoutName, resumeParked);
         }
 
         if (snapshot.Slots is not null)
@@ -557,7 +559,9 @@ public partial class MainWindow : Window
             for (int i = 0; i < Math.Min(_slots.Length, snapshot.Slots.Length); i++)
             {
                 var target = snapshot.Slots[i];
+                if (target is null) continue;
                 var current = _wallState.Slots[i];
+                var volume = double.IsFinite(target.Volume) ? Math.Clamp(target.Volume, 0.0, 1.0) : 1.0;
 
                 current.Label = target.Label;
                 current.Network = target.Network;
@@ -567,12 +571,12 @@ public partial class MainWindow : Window
                 current.LastNetwork = target.LastNetwork;
                 current.LastGameJson = target.LastGameJson;
                 current.Muted = target.Muted;
-                current.Volume = target.Volume;
+                current.Volume = volume;
 
                 SetMute(i, target.Muted);
-                _ = SetVolumeAsync(i, target.Volume);
+                _ = SetVolumeAsync(i, volume);
 
-                urls[i] = string.IsNullOrWhiteSpace(target.Url) ? null : target.Url;
+                urls[i] = CommandRules.IsPlayableUrl(target.Url) ? target.Url : null;
                 current.Url = urls[i];
             }
             // Starting up to 8 streams in the same instant is the heaviest thing the
@@ -615,6 +619,12 @@ public partial class MainWindow : Window
                 case "navigate":
                     if (cmd.Slot is int ns && ns is >= 0 and < 8 && cmd.Url is not null)
                     {
+                        if (!CommandRules.IsPlayableUrl(cmd.Url))
+                        {
+                            StatusText.Text = $"Screen {ns + 1}: ignored a link that isn't a web address.";
+                            break;
+                        }
+
                         LoadSlot(ns, cmd.Url);
 
                         var s = _wallState.Slots[ns];
