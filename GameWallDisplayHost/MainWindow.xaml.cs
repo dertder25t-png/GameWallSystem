@@ -56,6 +56,8 @@ public partial class MainWindow : Window
     private int _gpuRecoveryGeneration;
     private int _loadGeneration;
     private bool _watchdogRunning;
+    /// <summary>The shared WebView2 browser process exited; every slot is dead until GameWall restarts.</summary>
+    private bool _videoEngineStopped;
 
     /// <summary>Gap between starting each stream when several load together.</summary>
     private static readonly TimeSpan StaggerDelay = TimeSpan.FromMilliseconds(900);
@@ -872,6 +874,8 @@ public partial class MainWindow : Window
 
     private void OnProcessFailed(int slotIndex, CoreWebView2ProcessFailedKind kind)
     {
+        // Nothing can be reloaded once the browser itself is gone.
+        if (_videoEngineStopped) return;
         switch (kind)
         {
             case CoreWebView2ProcessFailedKind.GpuProcessExited:
@@ -885,12 +889,18 @@ public partial class MainWindow : Window
                 break;
 
             case CoreWebView2ProcessFailedKind.BrowserProcessExited:
-                // The shared browser is gone for every slot; it can't be revived in place,
-                // and calling Navigate on it now would only throw.
-                StatusText.Text = "The video engine stopped. End the session and start the wall again from your phone.";
+                // The shared browser is gone for every slot (this event arrives once per
+                // slot). It can't be revived in place, and the browsers are only created
+                // once per run, so ending and restarting the session doesn't help either.
+                _videoEngineStopped = true;
+                _gpuRecoveryGeneration++;
+                _loadGeneration++;
+                StatusText.Text = "The video engine stopped. Quit GameWall from the tray icon and start it again.";
                 StatusText.Foreground = System.Windows.Media.Brushes.OrangeRed;
                 StatusOverlay.Visibility = Visibility.Visible;
-                _ = BroadcastHealthAsync(slotIndex, "stalled");
+                _tray?.Notify("GameWall video engine stopped", "Quit GameWall from the tray icon and start it again.");
+                for (var i = 0; i < _slots.Length; i++)
+                    if (_lastUrls[i] is not null) _ = BroadcastHealthAsync(i, "stalled");
                 break;
 
             default:
@@ -1060,6 +1070,9 @@ public partial class MainWindow : Window
 
     private void SafeNavigate(int slotIndex, string url)
     {
+        // Calls into a dead browser only throw, and would replace the "video engine
+        // stopped" message with a less useful one.
+        if (_videoEngineStopped) return;
         try
         {
             _slots[slotIndex].CoreWebView2?.Navigate(url);
@@ -1103,7 +1116,7 @@ public partial class MainWindow : Window
         // The old tick awaited up to 1.5 s per slot one after another (12 s for 8 slots)
         // while the timer kept firing every 2.5 s, so ticks stacked up and could reload
         // the same slot several times over. One pass at a time now, all slots in parallel.
-        if (_watchdogRunning || !IsVisible) return;
+        if (_watchdogRunning || !IsVisible || _videoEngineStopped) return;
         _watchdogRunning = true;
         try
         {
