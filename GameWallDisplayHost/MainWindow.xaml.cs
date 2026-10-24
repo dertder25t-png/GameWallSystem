@@ -92,6 +92,9 @@ public partial class MainWindow : Window
     private PairWindow? _pairWindow;
     private int _pairedPhoneCount = -1;
     private readonly System.Windows.Threading.DispatcherTimer _pairCheckTimer = new() { Interval = TimeSpan.FromSeconds(60) };
+    /// <summary>Waits for a burst of display changes (a projector connecting) to settle.</summary>
+    private readonly System.Windows.Threading.DispatcherTimer _displaysSettledTimer = new() { Interval = TimeSpan.FromSeconds(1.5) };
+    private int _lastScreenCount = FormsScreen.AllScreens.Length;
     private readonly TaskCompletionSource _webViewsReady = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private bool _quitting;
     private bool _sessionActive;
@@ -173,6 +176,7 @@ public partial class MainWindow : Window
             lanRemoteEnabled: _settings.LanRemote,
             quit: () => Dispatcher.InvokeAsync(QuitApp));
 
+        _displaysSettledTimer.Tick += OnDisplaysSettled;
         Microsoft.Win32.SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
         UpdateStatusText();
 
@@ -391,15 +395,41 @@ public partial class MainWindow : Window
             "Wi-Fi remote", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
+    /// <summary>
+    /// Arrives on a system thread, often several times in a row while a projector or TV
+    /// negotiates its mode. Restart a short timer so the work below happens once per burst.
+    /// </summary>
     private void OnDisplaySettingsChanged(object? sender, EventArgs e)
     {
-        Dispatcher.InvokeAsync(async () =>
+        Dispatcher.InvokeAsync(() =>
         {
-            await SendDisplayStatusAsync();
-            var count = FormsScreen.AllScreens.Length;
-            if (count > 1 && !_sessionActive)
-                _tray?.Notify("Display connected", $"{count} screens found. Start the wall from GameDay on your phone.");
+            _displaysSettledTimer.Stop();
+            _displaysSettledTimer.Start();
         });
+    }
+
+    private async void OnDisplaysSettled(object? sender, EventArgs e)
+    {
+        _displaysSettledTimer.Stop();
+        try
+        {
+            var screens = FormsScreen.AllScreens;
+            // The wall's monitor went away (projector unplugged): put the wall back on the
+            // main screen, full size, rather than wherever Windows dropped it.
+            if (_selectedMonitorIndex >= screens.Length && IsVisible)
+                MoveToMonitor(GetPrimaryMonitorIndex(screens));
+
+            await SendDisplayStatusAsync();
+
+            // Toast only when a screen was added, not on every resolution change.
+            if (screens.Length > 1 && screens.Length > _lastScreenCount && !_sessionActive)
+                _tray?.Notify("Display connected", $"{screens.Length} screens found. Start the wall from GameDay on your phone.");
+            _lastScreenCount = screens.Length;
+        }
+        catch (Exception ex)
+        {
+            App.LogError("Display change", ex);
+        }
     }
 
     /// <summary>Sends a message to every local remote and every paired phone.</summary>
@@ -1284,6 +1314,8 @@ public partial class MainWindow : Window
     protected override void OnClosed(EventArgs e)
     {
         _watchdogTimer.Stop();
+        _displaysSettledTimer.Stop();
+        _pairCheckTimer.Stop();
         _server?.Stop();
         _bridge?.Dispose();
         _tray?.Dispose();
