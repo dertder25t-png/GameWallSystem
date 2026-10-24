@@ -16,18 +16,21 @@ public partial class MainWindow : Window
 {
     private const int ListenPort = 5000;
 
-    // Sample public test-clip URLs used by "test mode" so you can check
-    // the grid/layout before kickoff without needing real game links.
+    // Public test clips used by "test mode" so you can check the grid/layout (and how the
+    // laptop copes with 8 HD videos) before kickoff without needing real game links.
+    // Blender Foundation films, 1080p, from Wikimedia Commons. (Google closed the old
+    // gtv-videos-bucket sample clips to anonymous access; they now return 403.)
+    private const string CommonsVideos = "https://upload.wikimedia.org/wikipedia/commons/transcoded/";
     private static readonly string[] TestUrls =
     {
-        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
-        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
-        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
-        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4",
-        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4",
-        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerJoyrides.mp4",
-        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerMeltdowns.mp4",
-        "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/Sintel.mp4",
+        CommonsVideos + "c/c0/Big_Buck_Bunny_4K.webm/Big_Buck_Bunny_4K.webm.1080p.vp9.webm",
+        CommonsVideos + "a/a2/Elephants_Dream_%282006%29.webm/Elephants_Dream_%282006%29.webm.1080p.vp9.webm",
+        CommonsVideos + "f/f1/Sintel_movie_4K.webm/Sintel_movie_4K.webm.1080p.vp9.webm",
+        CommonsVideos + "1/10/Tears_of_Steel_in_4k_-_Official_Blender_Foundation_release.webm/Tears_of_Steel_in_4k_-_Official_Blender_Foundation_release.webm.1080p.vp9.webm",
+        CommonsVideos + "c/c0/Big_Buck_Bunny_4K.webm/Big_Buck_Bunny_4K.webm.1080p.vp9.webm",
+        CommonsVideos + "a/a2/Elephants_Dream_%282006%29.webm/Elephants_Dream_%282006%29.webm.1080p.vp9.webm",
+        CommonsVideos + "f/f1/Sintel_movie_4K.webm/Sintel_movie_4K.webm.1080p.vp9.webm",
+        CommonsVideos + "1/10/Tears_of_Steel_in_4k_-_Official_Blender_Foundation_release.webm/Tears_of_Steel_in_4k_-_Official_Blender_Foundation_release.webm.1080p.vp9.webm",
     };
 
     private WebView2[] _slots = Array.Empty<WebView2>();
