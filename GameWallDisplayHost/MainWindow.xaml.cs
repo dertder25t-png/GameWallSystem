@@ -437,7 +437,13 @@ public partial class MainWindow : Window
                 var kind = args.ProcessFailedKind;
                 Dispatcher.InvokeAsync(() => OnProcessFailed(slotIndex, kind));
             };
-            slot.CoreWebView2.NavigationCompleted += (_, _) => _ = BroadcastHealthAsync(slotIndex, "ok");
+            slot.CoreWebView2.NavigationCompleted += (_, _) =>
+            {
+                // A slot held blank after repeated GPU crashes stays "stalled" on the phone
+                // until someone reloads it; its about:blank finishing loading isn't recovery.
+                if (_heldAfterGpuCrash[slotIndex]) return;
+                _ = BroadcastHealthAsync(slotIndex, "ok");
+            };
             slot.CoreWebView2.Navigate("about:blank");
         }
     }
