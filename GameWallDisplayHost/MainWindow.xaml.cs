@@ -494,7 +494,11 @@ public partial class MainWindow : Window
     }
 
     /// <summary>Arranges the slots per the fractional coordinates of the given preset layout.</summary>
-    private void ApplyLayout(LayoutDefinition layout, string? layoutName = null)
+    /// <param name="resumeParked">
+    /// False when the caller is about to load new URLs with <see cref="LoadSlotsStaggered"/>:
+    /// slots coming back into view then wait for their turn instead of restarting the old stream.
+    /// </param>
+    private void ApplyLayout(LayoutDefinition layout, string? layoutName = null, bool resumeParked = true)
     {
         _isCustomLayout = false;
         _currentCustomRects = null;
@@ -503,11 +507,11 @@ public partial class MainWindow : Window
         _wallState.Layout = layoutName ?? GetLayoutName(layout);
         _wallState.CustomRects = null;
         RenderCanvasSlots();
-        UpdateParking();
+        UpdateParking(resumeParked);
     }
 
     /// <summary>Arranges the slots per arbitrary normalized fractional coordinates (custom layout).</summary>
-    private void ApplyCustomLayout(CustomSlotRect[] customRects)
+    private void ApplyCustomLayout(CustomSlotRect[] customRects, bool resumeParked = true)
     {
         _isCustomLayout = true;
         _currentCustomRects = customRects;
@@ -521,18 +525,22 @@ public partial class MainWindow : Window
         _wallState.Layout = "custom";
         _wallState.CustomRects = customRects;
         RenderCanvasSlots();
-        UpdateParking();
+        UpdateParking(resumeParked);
     }
 
     private void RestoreWallStateSnapshot(WallState snapshot)
     {
+        // When the snapshot brings its own URLs, the staggered load below starts every
+        // shown slot; letting the layout change resume parked slots first would briefly
+        // restart their old streams.
+        var resumeParked = snapshot.Slots is null;
         if (snapshot.Layout.Equals("custom", StringComparison.OrdinalIgnoreCase) && snapshot.CustomRects is { Length: > 0 })
         {
-            ApplyCustomLayout(snapshot.CustomRects);
+            ApplyCustomLayout(snapshot.CustomRects, resumeParked);
         }
         else
         {
-            ApplyLayout(Layouts.ByName(snapshot.Layout), snapshot.Layout);
+            ApplyLayout(Layouts.ByName(snapshot.Layout), snapshot.Layout, resumeParked);
         }
 
         if (snapshot.Slots is not null)
@@ -991,8 +999,10 @@ public partial class MainWindow : Window
             if (urls[i] is null || !IsSlotShown(i)) continue;
             if (!first) await Task.Delay(StaggerDelay);
             first = false;
-            // A newer command (or a newer staggered load) took over this slot meanwhile.
-            if (generation != _loadGeneration || _lastUrls[i] != urls[i]) continue;
+            // A newer staggered load, closeAll or endSession took over: stop here.
+            if (generation != _loadGeneration) return;
+            // A newer command took over this one slot meanwhile.
+            if (_lastUrls[i] != urls[i]) continue;
             LoadSlot(i, urls[i]);
         }
     }
@@ -1002,7 +1012,7 @@ public partial class MainWindow : Window
     /// decoding its video (and playing its audio) in the background. Park those on
     /// about:blank and bring them back when the layout shows them again.
     /// </summary>
-    private void UpdateParking()
+    private void UpdateParking(bool resumeParked = true)
     {
         var restoreDelay = TimeSpan.Zero;
         for (var i = 0; i < _slots.Length; i++)
@@ -1019,7 +1029,7 @@ public partial class MainWindow : Window
             {
                 _parked[i] = false;
                 var url = _lastUrls[i];
-                if (url is null || _heldAfterGpuCrash[i]) continue;
+                if (!resumeParked || url is null || _heldAfterGpuCrash[i]) continue;
                 SetMemoryLow(i, false);
                 _ = UnparkAfterAsync(i, url, restoreDelay);
                 restoreDelay += StaggerDelay;
@@ -1170,7 +1180,7 @@ public partial class MainWindow : Window
 
     private void RunTestMode()
     {
-        ApplyLayout(Layouts.EightUp);
+        ApplyLayout(Layouts.EightUp, resumeParked: false);
         _wallState.Revision++;
         _ = BroadcastWallStateAsync();
         LoadSlotsStaggered(TestUrls.Select(u => (string?)u).ToArray());
