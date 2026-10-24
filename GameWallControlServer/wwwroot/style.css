@@ -1100,6 +1100,24 @@ body {
   border-color: var(--accent);
   box-shadow: 0 0 14px rgba(232, 163, 61, 0.28);
 }
+.planner-block-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.planner-activate-btn {
+  font-weight: 600;
+}
+.planner-activate-btn.is-active {
+  border-color: var(--live);
+}
+.planner-active-note {
+  font-family: var(--font-data);
+  font-size: 12px;
+  color: var(--live);
+}
 .planner-block-head {
   display: flex;
   flex-wrap: wrap;
