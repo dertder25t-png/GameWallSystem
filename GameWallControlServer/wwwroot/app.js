@@ -1551,7 +1551,9 @@
       head.className = 'slot-card-head';
       const health = document.createElement('span');
       health.className = `slot-health slot-health--${state.health[i] || 'ok'}`;
-      health.title = state.health[i] === 'recovered' ? 'Recovered automatically' : 'Healthy';
+      health.title = state.health[i] === 'recovered' ? 'Recovered automatically'
+        : state.health[i] === 'stalled' ? 'Stalled: not playing. Tap Reopen or load it again.'
+        : 'Healthy';
       const indexLabel = document.createElement('span');
       indexLabel.className = 'slot-index';
       indexLabel.textContent = `Screen ${i + 1}`;

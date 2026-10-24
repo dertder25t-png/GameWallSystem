@@ -91,6 +91,9 @@ body.theme-light select, body.theme-light input { background: var(--panel); }
 }
 .game-card.selected, .slot-card.drag-over { border-color: #f2f2f2; }
 .slot-health { background: var(--live); }
+/* The theme's --accent is white, and the rule above would otherwise paint every state green. */
+.slot-health--recovered { background: var(--danger); }
+.slot-health--stalled { background: #f5a623; }
 .game-card-meta .live { color: var(--danger); }
 
 /* ---------- ticker, modals, toasts ---------- */
