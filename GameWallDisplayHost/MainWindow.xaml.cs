@@ -766,6 +766,12 @@ public partial class MainWindow : Window
     private void CloseAllSlots()
     {
         _loadGeneration++; // cancels any staggered load still in progress
+        _gpuRecoveryGeneration++; // and any GPU-crash recovery still bringing screens back
+        if (!_videoEngineStopped)
+        {
+            StatusText.Foreground = System.Windows.Media.Brushes.White;
+            UpdateStatusText();
+        }
         for (var s = 0; s < _slots.Length; s++)
         {
             LoadSlot(s, null);
