@@ -780,14 +780,21 @@ public partial class MainWindow : Window
     /// <summary>Flashes this laptop's name on the wall so you know which one you're controlling.</summary>
     private async void ShowIdentify(string? from)
     {
-        StatusOverlay.Visibility = Visibility.Visible;
-        var before = StatusText.Text;
-        StatusText.Text = $"This is {_settings.DeviceName}" + (string.IsNullOrWhiteSpace(from) ? "" : $" (asked by {from})");
-        StatusText.FontSize = 28;
-        await Task.Delay(4000);
-        StatusText.FontSize = 13;
-        StatusText.Text = before;
-        UpdateStatusText();
+        try
+        {
+            StatusOverlay.Visibility = Visibility.Visible;
+            var before = StatusText.Text;
+            StatusText.Text = $"This is {_settings.DeviceName}" + (string.IsNullOrWhiteSpace(from) ? "" : $" (asked by {from})");
+            StatusText.FontSize = 28;
+            await Task.Delay(4000);
+            StatusText.FontSize = 13;
+            StatusText.Text = before;
+            UpdateStatusText();
+        }
+        catch (Exception ex)
+        {
+            App.LogError("ShowIdentify", ex);
+        }
     }
 
     private void MoveToMonitor(int monitorIndex)
@@ -982,27 +989,34 @@ public partial class MainWindow : Window
     /// <summary>Loads several slots one after another instead of all in the same instant.</summary>
     private async void LoadSlotsStaggered(string?[] urls)
     {
-        var generation = ++_loadGeneration;
-
-        // Clear or park everything first so nothing from the old wall keeps decoding.
-        for (var i = 0; i < _slots.Length; i++)
+        try
         {
-            if (urls[i] is null) LoadSlot(i, null);
-            else if (!IsSlotShown(i)) LoadSlot(i, urls[i]);
-            else _lastUrls[i] = urls[i];
+            var generation = ++_loadGeneration;
+
+            // Clear or park everything first so nothing from the old wall keeps decoding.
+            for (var i = 0; i < _slots.Length; i++)
+            {
+                if (urls[i] is null) LoadSlot(i, null);
+                else if (!IsSlotShown(i)) LoadSlot(i, urls[i]);
+                else _lastUrls[i] = urls[i];
+            }
+
+            var first = true;
+            for (var i = 0; i < _slots.Length; i++)
+            {
+                if (urls[i] is null || !IsSlotShown(i)) continue;
+                if (!first) await Task.Delay(StaggerDelay);
+                first = false;
+                // A newer staggered load, closeAll or endSession took over: stop here.
+                if (generation != _loadGeneration) return;
+                // A newer command took over this one slot meanwhile.
+                if (_lastUrls[i] != urls[i]) continue;
+                LoadSlot(i, urls[i]);
+            }
         }
-
-        var first = true;
-        for (var i = 0; i < _slots.Length; i++)
+        catch (Exception ex)
         {
-            if (urls[i] is null || !IsSlotShown(i)) continue;
-            if (!first) await Task.Delay(StaggerDelay);
-            first = false;
-            // A newer staggered load, closeAll or endSession took over: stop here.
-            if (generation != _loadGeneration) return;
-            // A newer command took over this one slot meanwhile.
-            if (_lastUrls[i] != urls[i]) continue;
-            LoadSlot(i, urls[i]);
+            App.LogError("LoadSlotsStaggered", ex);
         }
     }
 
@@ -1093,7 +1107,7 @@ public partial class MainWindow : Window
         _watchdogRunning = true;
         try
         {
-            var probes = new List<(int Slot, Task<bool> Ok)>();
+            var probes = new List<(int Slot, string Url, Task<bool> Ok)>();
             for (var i = 0; i < _slots.Length; i++)
             {
                 var url = _lastUrls[i];
@@ -1104,12 +1118,14 @@ public partial class MainWindow : Window
                 }
                 var core = _slots[i].CoreWebView2;
                 if (core is null) continue;
-                probes.Add((i, ProbeAsync(core)));
+                probes.Add((i, url, ProbeAsync(core)));
             }
 
-            foreach (var (i, probe) in probes)
+            foreach (var (i, probedUrl, probe) in probes)
             {
                 var checkOk = await probe;
+                // The slot was closed, parked, held or given a new stream while we waited.
+                if (_lastUrls[i] != probedUrl || _parked[i] || _heldAfterGpuCrash[i]) continue;
                 if (!checkOk)
                 {
                     _backoff[i].ReportUnhealthy();
@@ -1134,6 +1150,10 @@ public partial class MainWindow : Window
                     }
                 }
             }
+        }
+        catch (Exception ex)
+        {
+            App.LogError("Watchdog", ex);
         }
         finally
         {
