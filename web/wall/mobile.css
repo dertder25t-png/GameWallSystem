@@ -364,6 +364,9 @@ body.m-ui .modal-head { align-items: flex-start; }
 body.m-ui .modal-actions { flex-wrap: wrap; }
 body.m-ui .modal-actions > button { flex: 1 1 auto; }
 body.m-ui .subscriptions-list { grid-template-columns: 1fr; }
+/* Day Planner: a full-width, thumb-sized "Activate time slot" button on each slot. */
+body.m-ui .planner-activate-btn { flex: 1 1 100%; min-height: 44px; font-size: 14px; }
+body.m-ui .planner-active-note { flex: 1 1 100%; text-align: center; }
 body.m-ui .toast-container { left: 12px; right: 12px; max-width: none; bottom: calc(72px + env(safe-area-inset-bottom, 0px)); }
 /* One toast at a time on a phone (the newest, with its Undo), and none over a sheet. */
 body.m-ui .toast-container .toast:not(:last-child) { display: none; }
