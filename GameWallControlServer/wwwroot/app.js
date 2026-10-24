@@ -2187,6 +2187,17 @@
 
       head.append(timeInput, titleInput, layoutSelect, removeBtn);
 
+      // Activate now: put this time slot on the wall without waiting for its start time.
+      const actions = document.createElement('div');
+      actions.className = 'planner-block-actions';
+      const activateBtn = document.createElement('button');
+      activateBtn.type = 'button';
+      activateBtn.className = 'btn-secondary planner-activate-btn';
+      activateBtn.addEventListener('click', () => activateDayPlanBlockNow(block));
+      const activeNote = document.createElement('span');
+      activeNote.className = 'planner-active-note';
+      actions.append(activateBtn, activeNote);
+
       // Slot rules
       const slotsContainer = document.createElement('div');
       slotsContainer.className = 'planner-block-slots';
@@ -2267,9 +2278,75 @@
         slotsContainer.appendChild(ruleDiv);
       });
 
-      card.append(head, slotsContainer);
+      card.dataset.blockId = ensurePlannerBlockId(block);
+      card.append(head, actions, slotsContainer);
       el.plannerBlocksList.appendChild(card);
     });
+    refreshPlannerActiveMarks();
+  }
+
+  function ensurePlannerBlockId(block) {
+    if (!block.id) block.id = 'block-' + Date.now() + '-' + Math.floor(Math.random() * 100000);
+    return block.id;
+  }
+
+  function plannerBlockMinutes(block) {
+    const [h, m] = (block.time || '00:00').split(':').map(Number);
+    return (h || 0) * 60 + (m || 0);
+  }
+
+  // Highlights the time slot that is on the wall now, without rebuilding the
+  // list (so typing in an open planner is never interrupted).
+  function refreshPlannerActiveMarks() {
+    if (!el.plannerBlocksList) return;
+    const active = state.dayPlanner.activeBlock || null;
+    for (const card of el.plannerBlocksList.querySelectorAll('.planner-block-card')) {
+      const isActive = Boolean(active && active.id === card.dataset.blockId);
+      card.classList.toggle('active-block', isActive);
+      const btn = card.querySelector('.planner-activate-btn');
+      const note = card.querySelector('.planner-active-note');
+      if (btn) {
+        btn.textContent = isActive ? '↻ Apply again' : '▶ Activate time slot';
+        btn.title = isActive
+          ? 'Re-apply this time slot’s layout and screens to the wall now'
+          : 'Put this time slot’s layout and screens on the wall now, without waiting for its start time';
+        btn.classList.toggle('is-active', isActive);
+      }
+      if (note) {
+        const at = isActive && active.at
+          ? new Date(active.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+          : '';
+        note.textContent = isActive
+          ? `✓ On the wall now · ${active.manual ? 'activated by you' : 'started on schedule'}${at ? ` at ${at}` : ''}`
+          : '';
+        note.hidden = !isActive;
+      }
+    }
+  }
+
+  // Manual "Activate time slot": runs the same code the clock runs when the slot's
+  // start time arrives, then treats this slot as the current one until the next
+  // scheduled slot starts.
+  function activateDayPlanBlockNow(block) {
+    saveDayPlanner(); // apply any policy changes made in the open planner first
+    const now = new Date();
+    const todayStr = now.toDateString();
+    const nowMinutes = now.getHours() * 60 + now.getMinutes();
+    const target = plannerBlockMinutes(block);
+
+    // Slots whose start time has already passed count as done for today, so the
+    // clock can't fire an older slot over this one on its next tick.
+    const blocks = state.dayPlanner.blocks || [];
+    const laterSlotFirst = blocks.some(b => b !== block && b.executedDate !== todayStr
+      && plannerBlockMinutes(b) > nowMinutes && plannerBlockMinutes(b) < target);
+    blocks.forEach(b => { if (plannerBlockMinutes(b) <= nowMinutes) b.executedDate = todayStr; });
+    // If this slot's own start time is still ahead and nothing else is scheduled
+    // before it, reaching it later would only re-apply the same slot, so skip that.
+    // If another slot starts in between, this one runs again at its own time.
+    if (!laterSlotFirst) block.executedDate = todayStr;
+
+    executeDayPlanBlock(block, true);
+    localStorage.setItem('gamewall_day_planner', JSON.stringify(state.dayPlanner));
   }
 
   // Accepts a pasted link; only normal http/https addresses are allowed.
@@ -2527,9 +2604,15 @@
     localStorage.setItem('gamewall_day_planner', JSON.stringify(state.dayPlanner));
   }
 
-  function executeDayPlanBlock(block) {
+  function executeDayPlanBlock(block, manual = false) {
     const before = snapshotWallState();
-    showToast('Day Planner Slate Change', `Transitioning to "${block.name || 'Next Slate'}" (${block.time}).`, true, 8000);
+    showToast(
+      manual ? 'Time Slot Activated' : 'Day Planner Slate Change',
+      manual
+        ? `"${block.name || 'Time slot'}" (${block.time}) is now on the wall.${state.dayPlanner.enabled ? ' The planner picks up again at the next scheduled slot.' : ''}`
+        : `Transitioning to "${block.name || 'Next Slate'}" (${block.time}).`,
+      true, 8000);
+    state.dayPlanner.activeBlock = { id: ensurePlannerBlockId(block), at: Date.now(), manual };
 
     // Apply layout
     if (block.layout && block.layout.startsWith('custom:')) {
@@ -2631,7 +2714,8 @@
     }
 
     renderSlots();
-    recordAction('dayPlannerSlate', `Day Planner: Applied "${block.name || 'Slate'}" (${block.time})`, before);
+    refreshPlannerActiveMarks();
+    recordAction('dayPlannerSlate', `Day Planner: ${manual ? 'Activated' : 'Applied'} "${block.name || 'Slate'}" (${block.time})${manual ? ' manually' : ''}`, before);
   }
 
   function checkAutoSwitchFinishedGames() {
