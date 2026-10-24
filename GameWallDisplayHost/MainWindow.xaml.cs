@@ -61,6 +61,8 @@ public partial class MainWindow : Window
     private bool _watchdogRunning;
     /// <summary>The shared WebView2 browser process exited; every slot is dead until GameWall restarts.</summary>
     private bool _videoEngineStopped;
+    private const string VideoEngineStoppedMessage =
+        "The video engine stopped. Quit GameWall from the tray icon and start it again.";
 
     /// <summary>Gap between starting each stream when several load together.</summary>
     private static readonly TimeSpan StaggerDelay = TimeSpan.FromMilliseconds(900);
@@ -234,6 +236,13 @@ public partial class MainWindow : Window
 
     private void UpdateStatusText()
     {
+        if (_videoEngineStopped)
+        {
+            // Keep saying so until GameWall restarts; nothing else on screen matters now.
+            StatusText.Text = VideoEngineStoppedMessage;
+            _tray?.SetStatus("Video engine stopped: quit and restart");
+            return;
+        }
         var cloud = _bridge is null ? "Cloud: starting" : $"Cloud: {_bridge.StatusMessage}";
         var name = _settings.DeviceName;
         StatusText.Text = $"{name} · {cloud} · {_localListenText}";
@@ -944,7 +953,8 @@ public partial class MainWindow : Window
                 _videoEngineStopped = true;
                 _gpuRecoveryGeneration++;
                 _loadGeneration++;
-                StatusText.Text = "The video engine stopped. Quit GameWall from the tray icon and start it again.";
+                StatusText.Text = VideoEngineStoppedMessage;
+                _tray?.SetStatus("Video engine stopped: quit and restart");
                 StatusText.Foreground = System.Windows.Media.Brushes.OrangeRed;
                 StatusOverlay.Visibility = Visibility.Visible;
                 _tray?.Notify("GameWall video engine stopped", "Quit GameWall from the tray icon and start it again.");
@@ -1024,6 +1034,13 @@ public partial class MainWindow : Window
         _stallFailures[slotIndex] = 0;
         _backoff[slotIndex].Reset();
         _heldAfterGpuCrash[slotIndex] = false; // a new load from the phone lifts the hold
+
+        if (_videoEngineStopped)
+        {
+            // Nothing can play until GameWall restarts: tell the phone instead of showing "ok".
+            if (_lastUrls[slotIndex] is not null) _ = BroadcastHealthAsync(slotIndex, "stalled");
+            return;
+        }
 
         if (_lastUrls[slotIndex] is null)
         {
