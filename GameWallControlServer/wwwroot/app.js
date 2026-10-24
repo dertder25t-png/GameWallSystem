@@ -1014,7 +1014,14 @@
   function connectWebSocket() {
     if (CLOUD) { connectCloud(); return; }
     if (!state.pcIp) return;
-    if (state.ws) { try { state.ws.close(); } catch (_) {} }
+    clearTimeout(state.reconnectTimer);
+    if (state.ws) {
+      // Detach first: the old socket's onclose would otherwise schedule a retry that
+      // closes this new socket, whose onclose schedules another, forever.
+      const old = state.ws;
+      old.onopen = old.onmessage = old.onclose = old.onerror = null;
+      try { old.close(); } catch (_) {}
+    }
 
     state.pcIp = normalizeHost(state.pcIp);
     el.pcIpInput.value = state.pcIp;
@@ -1129,8 +1136,9 @@
     renderSlots();
   }
     ws.onclose = () => {
+      if (state.ws !== ws) return; // a newer connection has taken over
       clearTimeout(state.wsConnectTimer);
-      if (state.ws === ws) state.ws = null;
+      state.ws = null;
       state.wsConnected = false;
       state.connectAttempts++;
 
