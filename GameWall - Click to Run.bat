@@ -7,7 +7,6 @@ rem in the tray. It also starts itself with Windows from now on (turn that off f
 rem tray icon), so on game day you just plug in the laptop and use your phone.
 
 set DISPLAY_DIST=dist\DisplayHost
-set CONTROL_DIST=dist\ControlServer
 
 where dotnet >nul 2>nul
 if %ERRORLEVEL% NEQ 0 (
@@ -33,9 +32,6 @@ if %ERRORLEVEL% NEQ 0 (
   exit /b 1
 )
 
-echo Building the optional offline remote...
-dotnet publish GameWallControlServer\GameWallControlServer.csproj -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -o "%CONTROL_DIST%"
-
 echo.
 echo Starting GameWall in the tray...
 start "" "%DISPLAY_DIST%\GameWallDisplayHost.exe" --background
@@ -47,4 +43,6 @@ echo    gameday-cfb.vercel.app, tap Wall, and enter the code.
 echo  - From then on it starts with Windows and waits quietly in the tray.
 echo  - Tray icon menu: Show the wall, End session, Pair a phone, Quit.
 echo.
-pause
+echo This window closes by itself in a few seconds.
+timeout /t 6 /nobreak >nul
+exit /b 0

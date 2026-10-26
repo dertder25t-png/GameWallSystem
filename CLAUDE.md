@@ -5,7 +5,7 @@ Two products. Never mix them up.
 ## "Mobile app" = the LIVE, PUBLIC GameDay app on Vercel
 - URL: gameday-cfb.vercel.app (Vercel project `gameday-cfb`). This is what real users open on their phones.
 - Source: `GameWall-Alpha/web/` (index.html = GameDay, `web/wall/` = the Wall tab and remote UI, `web/api/` = serverless endpoints).
-- Changes here only reach users after a deploy: `Deploy GameDay (preview).bat`, then `Deploy GameDay (production).bat` (run on the laptop, needs the Vercel login).
+- Changes here only reach users after a deploy: `Deploy GameDay.bat` (P = preview, then L = live) (run on the laptop, needs the Vercel login).
 - When the user says "the mobile app", "the app", "live app" or "web app", they mean THIS. A task about it is not finished until it is deployed to Vercel production and checked on the live URL.
 
 ## "Wall software" = the LOCAL Windows PC software

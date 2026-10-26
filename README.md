@@ -47,11 +47,11 @@ Allow Wi-Fi remote, Quit.
 
 The phone side lives in GameDay, so GameDay needs a new deploy:
 
-1. Double-click **`Deploy GameDay (preview).bat`**. The first time, it asks you to log
-   in to Vercel in your browser. It prints a preview link.
+1. Double-click **`Deploy GameDay.bat`** and press **P** (preview). The first time, it
+   asks you to log in to Vercel in your browser. It prints a preview link.
 2. Open that link on your phone and add **`/wall/`** to the end. Previews ask for
    your Vercel login because your project protects them.
-3. When it works, run **`Deploy GameDay (production).bat`** (type YES) to put it on
+3. When it works, run **`Deploy GameDay.bat`** again, press **L** and type YES to put it on
    gameday-cfb.vercel.app for everyone. You can roll back in the Vercel dashboard.
 
 The pairing server is already live; nothing else needs deploying.
@@ -73,7 +73,6 @@ The pairing server is already live; nothing else needs deploying.
 | *No longer paired* | Tray icon → Pair a phone…, enter the new code. |
 | A screen won't play video | Note which service. Some services block embedded players; this is the #1 thing we're testing. |
 | Build error in the .bat | Copy the red error text and send it back. |
-| Internet is down | **`GameWall - Offline Remote (this PC only).bat`** opens the old local remote on the laptop. |
 
 ## What to report back
 
